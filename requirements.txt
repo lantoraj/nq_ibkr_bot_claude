@@ -1,0 +1,5 @@
+ib_async>=2.0,<3
+pandas>=2.0,<3
+numpy>=1.24,<3
+pytz>=2023.3
+pytest>=7.4
