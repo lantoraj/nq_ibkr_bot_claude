@@ -29,6 +29,7 @@ from ib_async import IB, BarDataList, Contract, Future, LimitOrder, MarketOrder,
 
 from config import BotConfig
 from context import attach_session_context
+from entry import confirm_ok, plan_entry
 from events import build_calendar
 from indicators import filter_rth, round_to_tick, to_session_time
 from risk_manager import RiskManager
@@ -98,7 +99,7 @@ class IBKRNQBotRunner:
         self.cfg = config
         self.mode = mode.lower()
         self.ib = ib or IB()
-        self.strategy = NQIntradayStrategy(config.strategy, config.risk, config.contract, config.context)
+        self.strategy = NQIntradayStrategy(config.strategy, config.risk, config.contract, config.context, config.entry)
         self.risk = RiskManager(config.risk, config.contract)
         self.bar_sec = BAR_SECONDS[config.strategy.bar_size]
         self.risk.calendar = build_calendar(config, self.bar_sec)
@@ -121,6 +122,7 @@ class IBKRNQBotRunner:
         self._events_wired = False
         self._stop = False
         self._last_orphan_check = 0.0
+        self._confirm: Optional[TradeSignal] = None      # signal waiting for its confirmation bar
 
     # ------------------------------------------------------------------ small utilities
     def _now_et_date(self) -> date:
@@ -193,9 +195,8 @@ class IBKRNQBotRunner:
         rev = "SELL" if action == "BUY" else "BUY"
         outside = not r.rth_only
 
+        lmt, signal = plan_entry(signal, self.cfg)          # marketable limit, or a retrace limit with re-based exits
         parent_id = self.ib.client.getReqId()
-        slip = r.entry_limit_slippage_ticks * tick
-        lmt = round_to_tick(signal.entry_price + (slip if action == "BUY" else -slip), tick)
         parent = LimitOrder(action, quantity, lmt, orderId=parent_id, transmit=False, outsideRth=outside, tif="DAY")
 
         oca = f"OCA_{parent_id}"
@@ -425,9 +426,21 @@ class IBKRNQBotRunner:
             logger.debug("Skip %s: %s", ts, why)
             return
 
+        if self._confirm is not None:
+            pend, self._confirm = self._confirm, None
+            last = df.iloc[-1]
+            if confirm_ok(pend, float(last["close"]), float(last["low"]), float(last["high"]), self.cfg):
+                rebased = pend.rebased(round_to_tick(float(last["close"]), self.cfg.contract.tick_size))
+                self.place_bracket_order(rebased, self.risk.calculate_contracts(rebased.stop_distance_points), bar_ts=ts)
+            return
+
         enriched = self.strategy.prepare_dataframe(df)
         signal = self.strategy.evaluate_bar(enriched, idx=-1)
         if signal is not None:
+            if self.cfg.entry.confirm_bars > 0:
+                self._confirm = signal
+                logger.info("Signal %s %s awaiting confirmation bar", signal.direction, signal.setup)
+                return
             qty = self.risk.calculate_contracts(signal.stop_distance_points)
             self.place_bracket_order(signal, qty, bar_ts=ts)
 

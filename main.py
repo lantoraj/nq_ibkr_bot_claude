@@ -42,6 +42,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--event-filter", action="store_true", help="enable economic-event calendar filter")
     p.add_argument("--gap-filter", action="store_true", help="block trades against an unfilled opening gap")
     p.add_argument("--overnight-guard", action="store_true", help="treat overnight high/low as walls (needs ETH data)")
+    p.add_argument("--entry-style", choices=["marketable", "retrace"], default="marketable")
+    p.add_argument("--retrace-atr", type=float, default=0.25)
+    p.add_argument("--confirm-bar", action="store_true", help="require the bar after the signal to confirm")
+    p.add_argument("--structural-stop", action="store_true", help="stop beyond recent swing instead of ATR multiple")
+    p.add_argument("--max-extension-atr", type=float, default=0.0, help="skip signals further than this from the fast EMA (0=off)")
     p.add_argument("--state-file", default="state/bot_state.json")
     p.add_argument("--confirm-live", default="", help=f"must equal {LIVE_CONFIRMATION} to trade a live account")
     return p.parse_args(argv)
@@ -60,6 +65,12 @@ def build_config(args: argparse.Namespace) -> BotConfig:
     cfg.backtest.fill_model = args.fill_model
     cfg.execution.state_file = args.state_file
     cfg.context.use_event_filter = args.event_filter
+    cfg.entry.execution_style = args.entry_style
+    cfg.entry.retrace_atr = args.retrace_atr
+    cfg.entry.confirm_bars = 1 if args.confirm_bar else 0
+    cfg.entry.max_extension_atr = args.max_extension_atr
+    if args.structural_stop:
+        cfg.risk.stop_mode = "structural"
     cfg.context.use_gap_filter = args.gap_filter
     cfg.context.use_overnight_guard = args.overnight_guard
     if args.port > 0:

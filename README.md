@@ -25,7 +25,7 @@ but with a realistic backtester, a statistical validation harness, and a live en
 | Contract | nearest unexpired contract | rolls 8 days before expiry |
 | Time zones | naive timestamps silently treated as UTC | naive timestamps rejected; IB bars requested as UTC |
 | Live safety | warning log only | `--confirm-live I-ACCEPT-REAL-MONEY-RISK` required |
-| Tests | 4 | 47 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context tests) |
+| Tests | 4 | 60 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context and entry-option tests) |
 
 ## Layout
 
@@ -36,6 +36,7 @@ strategy.py        signal engine (+ RandomEntryStrategy null benchmark)
 trade_mgmt.py      StopManager: break-even + time-decay, shared by backtest and live
 context.py         opening gap + overnight (Globex) range per session
 events.py          economic-event calendar: entry blackout, flatten-before-event, skip tier-1 days
+entry.py           entry planning shared by backtest and live: retrace limit, confirmation bar
 risk_manager.py    daily limits, session window, sizing, serialisable state
 backtest.py        bar-by-bar simulator (signal_close legacy model | next_bar realistic model)
 metrics.py         metrics + bootstrap
@@ -104,6 +105,21 @@ Findings on the 3-month sample (`reports/research_report.md`, section 9):
   build environment. FOMC dates matched across sources; CPI dates are from secondary sites and marked UNVERIFIED. Confirm them
   and extend the file (it only protects against events it lists; the live runner warns when it is stale).
 * The CSV is an unadjusted continuous contract; gaps near the September roll include calendar spread.
+
+## Entry-quality experiments (all default OFF; result: nothing beat the baseline)
+
+Motivated by the 35 trades that fail within 3 bars (-$1,829). Flags: `--entry-style retrace --retrace-atr X`, `--confirm-bar`,
+`--structural-stop`, `--max-extension-atr X`. Results are in `reports/research_report.md`, section 10.
+
+| Idea | Result vs baseline (+$1,789, 111 trades) |
+|---|---|
+| Retrace limit (wait for a dip) | 0.10 ATR: +$2,163 but worse in the first half; 0.25: +$969; 0.50: -$426. Non-monotonic and degrading. No robust gain |
+| Confirmation bar | +$86. **Waiting for confirmation destroys the edge**, the edge is in the early momentum entry |
+| No-chase filter (close near EMA9) | -$619 to +$485. Most winning signals are extended bars, so filtering them out hurts |
+| Structural (swing) stop | 2-bar swing: +$2,053 (better in both halves); 3-bar: +$1,420; 5-bar: +$1,082. Gets worse as the swing lengthens, within noise of the +/-$200 sensitivity seen earlier |
+
+Takeaway: the data do not support changing the entry. The only candidates worth re-testing on a longer data set are the 2-bar
+structural stop and a 0.10 ATR retrace, and both gains are inside the sample's noise.
 
 ## Next steps before trusting it
 

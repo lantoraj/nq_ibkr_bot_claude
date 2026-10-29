@@ -143,3 +143,27 @@ The single-path max drawdown understates likely drawdown; use `maxdd_p95` for si
 **Data caveat.** The CSV is an unadjusted IBKR continuous contract. The largest gaps cluster around the September roll (e.g. 2026-09-10/11/14), so some gaps include the calendar spread between contracts and are not real overnight moves. Back-adjust or use per-contract data before trusting gap statistics.
 
 With this few event days the event filter cannot be judged statistically; its value is risk control (not holding through FOMC/CPI/NFP), not a measured edge.
+
+## 10. Entry-quality options (next-bar fill model, one change at a time)
+
+| variant | trades | net $ | PF | max DD $ | avg R | fast fails (<=3 bars) | fast-fail net $ | 1st half $ | 2nd half $ |
+|---|---|---|---|---|---|---|---|---|---|
+| baseline (marketable limit, ATR stop) | 111 | 1789.37 | 1.52 | 703.63 | 0.231 | 35 | -1829.0 | 455.35 | 1334.02 |
+| retrace limit 0.10 ATR | 105 | 2163.34 | 1.71 | 693.06 | 0.317 | 31 | -1478.0 | 155.1 | 2008.24 |
+| retrace limit 0.25 ATR | 97 | 968.51 | 1.33 | 986.05 | 0.16 | 30 | -1563.0 | 179.31 | 789.2 |
+| retrace limit 0.50 ATR | 84 | -425.73 | 0.84 | 1201.31 | -0.059 | 24 | -1416.0 | -860.39 | 434.66 |
+| retrace limit 0.75 ATR | 67 | 16.92 | 1.01 | 484.1 | 0.05 | 25 | -1365.0 | -267.44 | 284.36 |
+| confirmation bar | 88 | 86.46 | 1.03 | 1147.09 | 0.037 | 33 | -1777.0 | -507.44 | 593.9 |
+| confirmation bar, move >= 0.1 ATR | 80 | -559.12 | 0.82 | 1255.81 | -0.076 | 29 | -1864.0 | -587.48 | 28.36 |
+| structural stop, 2-bar swing | 110 | 2053.11 | 1.6 | 694.11 | 0.297 | 39 | -1624.0 | 533.35 | 1519.76 |
+| structural stop, 3-bar swing | 109 | 1420.35 | 1.42 | 988.86 | 0.188 | 35 | -1679.0 | 85.85 | 1334.5 |
+| structural stop, 5-bar swing | 109 | 1081.85 | 1.31 | 1388.86 | 0.127 | 32 | -1780.0 | -262.15 | 1344.0 |
+| structural stop, 8-bar swing | 109 | 1119.35 | 1.32 | 1337.36 | 0.141 | 28 | -1591.0 | -256.15 | 1375.5 |
+| no-chase: close within 0.3 ATR of EMA9 | 9 | -86.23 | 0.74 | 286.33 | -0.239 | 4 | -252.0 | -204.27 | 118.04 |
+| no-chase: within 0.6 ATR | 49 | -618.7 | 0.68 | 995.22 | -0.139 | 20 | -1113.0 | -736.68 | 117.98 |
+| no-chase: within 1.0 ATR | 100 | 484.96 | 1.16 | 982.97 | 0.093 | 32 | -1854.0 | -276.76 | 761.72 |
+| combo: structural 3 + confirmation | 89 | 43.26 | 1.01 | 1082.83 | 0.025 | 35 | -1605.0 | -643.66 | 686.92 |
+| combo: structural 3 + retrace 0.25 | 93 | 632.47 | 1.22 | 1191.81 | 0.117 | 25 | -1351.0 | -50.19 | 682.66 |
+| combo: confirmation + within 0.6 ATR | 26 | -338.99 | 0.75 | 863.67 | -0.116 | 10 | -812.0 | -572.09 | 233.1 |
+
+A variant is only interesting if it helps in BOTH halves and its neighbours (other retrace sizes, swing lengths) behave similarly. Each row is a hypothesis tested on the same 111-trade sample, so some will look good by chance.

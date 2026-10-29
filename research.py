@@ -56,7 +56,7 @@ class Lab:
         s = cfg.strategy
         key = (cfg.backtest.rth_filter_data, cfg.strategy.bar_size, s.fast_ema_period, s.slow_ema_period,
                s.trend_ema_period, s.atr_period, s.rsi_period, s.kalman_q_pos, s.kalman_q_vel,
-               s.kalman_r_meas, s.hurst_lag_q, s.hurst_window)
+               s.kalman_r_meas, s.hurst_lag_q, s.hurst_window, cfg.risk.structural_lookback)
         if key not in self._enriched:
             self._enriched[key] = Backtester(cfg).enrich(self.raw)
         return self._enriched[key]
@@ -304,10 +304,58 @@ def sec_context(lab: Lab) -> str:
     return out
 
 
+def sec_entry(lab: Lab) -> str:
+    dates = lab.dates()
+    mid = str(dates[len(dates) // 2])
+
+    def e(**kw):
+        return [(lambda k, v: (lambda c: setattr(c.entry, k, v)))(k, v) for k, v in kw.items()]
+
+    def st(n):
+        return [lambda c: setattr(c.risk, "stop_mode", "structural"), lambda c: setattr(c.risk, "structural_lookback", n)]
+
+    variants = {
+        "baseline (marketable limit, ATR stop)": [],
+        "retrace limit 0.10 ATR": e(execution_style="retrace", retrace_atr=0.10),
+        "retrace limit 0.25 ATR": e(execution_style="retrace", retrace_atr=0.25),
+        "retrace limit 0.50 ATR": e(execution_style="retrace", retrace_atr=0.50),
+        "retrace limit 0.75 ATR": e(execution_style="retrace", retrace_atr=0.75),
+        "confirmation bar": e(confirm_bars=1),
+        "confirmation bar, move >= 0.1 ATR": e(confirm_bars=1, confirm_min_move_atr=0.1),
+        "structural stop, 2-bar swing": st(2),
+        "structural stop, 3-bar swing": st(3),
+        "structural stop, 5-bar swing": st(5),
+        "structural stop, 8-bar swing": st(8),
+        "no-chase: close within 0.3 ATR of EMA9": e(max_extension_atr=0.3),
+        "no-chase: within 0.6 ATR": e(max_extension_atr=0.6),
+        "no-chase: within 1.0 ATR": e(max_extension_atr=1.0),
+        "combo: structural 3 + confirmation": st(3) + e(confirm_bars=1),
+        "combo: structural 3 + retrace 0.25": st(3) + e(execution_style="retrace", retrace_atr=0.25),
+        "combo: confirmation + within 0.6 ATR": e(confirm_bars=1, max_extension_atr=0.6),
+    }
+    rows = []
+    for name, mods in variants.items():
+        cfg = lab.cfg(*mods)
+        res = lab.run(cfg)
+        m = res["metrics"]
+        ff = [t for t in res["trades"] if t.bars_held <= 3]
+        h1 = lab.run(cfg, end=mid)["metrics"]["net_pnl_usd"]
+        h2 = lab.run(cfg, start=mid)["metrics"]["net_pnl_usd"]
+        rows.append({
+            "variant": name, "trades": m["total_trades"], "net $": m["net_pnl_usd"], "PF": m["profit_factor"],
+            "max DD $": m["max_drawdown_usd"], "avg R": m["expectancy_r"],
+            "fast fails (<=3 bars)": len(ff), "fast-fail net $": round(sum(t.net_pnl_usd for t in ff), 0),
+            "1st half $": h1, "2nd half $": h2,
+        })
+    return ("## 10. Entry-quality options (next-bar fill model, one change at a time)\n\n" + md_table(rows) +
+            "\nA variant is only interesting if it helps in BOTH halves and its neighbours (other retrace sizes, swing lengths) "
+            "behave similarly. Each row is a hypothesis tested on the same 111-trade sample, so some will look good by chance.\n")
+
+
 SECTIONS = {
     "baseline": sec_baseline, "ablation": sec_ablation, "stress": sec_stress, "sensitivity": sec_sensitivity,
     "split": sec_split, "walkforward": sec_walkforward, "random": sec_random, "bootstrap": sec_bootstrap,
-    "context": sec_context,
+    "context": sec_context, "entry": sec_entry,
 }
 
 

@@ -107,9 +107,11 @@ class RiskConfig:
     entry_limit_slippage_ticks: int = 1
     cancel_unfilled_entry_bars: int = 3
 
-    stop_mode: Literal["atr", "fixed_points"] = "atr"
+    stop_mode: Literal["atr", "fixed_points", "structural"] = "atr"
     atr_stop_multiplier: float = 1.2
     fixed_stop_points: float = 15.0
+    structural_lookback: int = 3          # stop_mode='structural': stop beyond the last N bars' swing extreme
+    structural_buffer_ticks: int = 2
     min_stop_points: float = 8.0
     max_stop_points: float = 40.0
     reward_risk_ratio: float = 3.0
@@ -192,6 +194,16 @@ class ContextConfig:
 
 
 @dataclass
+class EntryConfig:
+    """Entry-quality options. All default OFF (baseline behaviour)."""
+    execution_style: Literal["marketable", "retrace"] = "marketable"
+    retrace_atr: float = 0.25             # 'retrace': rest a limit this many ATR better than the signal close
+    confirm_bars: int = 0                 # 1 = require the next bar to confirm before entering
+    confirm_min_move_atr: float = 0.0     # confirmation bar must close this far beyond the signal close
+    max_extension_atr: float = 0.0        # >0: skip signals whose close is further than this from the fast EMA
+
+
+@dataclass
 class BotConfig:
     """Master configuration container."""
     ibkr: IBKRConfig = field(default_factory=IBKRConfig)
@@ -202,6 +214,7 @@ class BotConfig:
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     context: ContextConfig = field(default_factory=ContextConfig)
+    entry: EntryConfig = field(default_factory=EntryConfig)
 
     @property
     def commission_per_side(self) -> float:

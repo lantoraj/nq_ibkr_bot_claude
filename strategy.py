@@ -13,7 +13,7 @@ from typing import Literal, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from config import ContextConfig, ContractConfig, RiskConfig, StrategyConfig
+from config import ContextConfig, ContractConfig, EntryConfig, RiskConfig, StrategyConfig
 from indicators import enrich_indicators, round_to_tick
 
 SignalDirection = Literal["LONG", "SHORT"]
@@ -39,6 +39,13 @@ class TradeSignal:
     hurst: float = 0.5
     setup: str = ""
 
+    def rebased(self, new_entry: float) -> "TradeSignal":
+        """Same signal with entry moved to new_entry; stop and target keep their distances."""
+        from dataclasses import replace
+        d = new_entry - self.entry_price
+        return replace(self, entry_price=round(new_entry, 2), stop_loss=round(self.stop_loss + d, 2),
+                       take_profit=round(self.take_profit + d, 2))
+
 
 def _in_band(x: float, band: Tuple[float, float]) -> bool:
     return band[0] <= x <= band[1]
@@ -48,8 +55,9 @@ class NQIntradayStrategy:
     """Hybrid EMA(9/21/50) + session-VWAP z-band + PDH/PDL + ORB strategy with a confidence gate."""
 
     def __init__(self, strategy_cfg: StrategyConfig, risk_cfg: RiskConfig, contract_cfg: ContractConfig,
-                 context_cfg: Optional[ContextConfig] = None) -> None:
+                 context_cfg: Optional[ContextConfig] = None, entry_cfg: Optional[EntryConfig] = None) -> None:
         self.ctx_cfg = context_cfg
+        self.entry_cfg = entry_cfg
         self.s_cfg = strategy_cfg
         self.r_cfg = risk_cfg
         self.c_cfg = contract_cfg
@@ -70,6 +78,7 @@ class NQIntradayStrategy:
             kalman_r_meas=s.kalman_r_meas,
             hurst_lag_q=s.hurst_lag_q,
             hurst_window=s.hurst_window,
+            swing_lookback=self.r_cfg.structural_lookback,
         )
 
     @property
@@ -181,7 +190,17 @@ class NQIntradayStrategy:
                      meta_prob: float = 1.0) -> TradeSignal:
         """Construct stop / target around the closed bar's close for a given direction."""
         atr = float(c["atr"])
-        raw = atr * self.r_cfg.atr_stop_multiplier if self.r_cfg.stop_mode == "atr" else self.r_cfg.fixed_stop_points
+        entry_px = round_to_tick(float(c["close"]), self.c_cfg.tick_size)
+        if self.r_cfg.stop_mode == "structural":
+            buf = self.r_cfg.structural_buffer_ticks * self.c_cfg.tick_size
+            if direction == "LONG":
+                raw = entry_px - (float(c["swing_low"]) - buf)
+            else:
+                raw = (float(c["swing_high"]) + buf) - entry_px
+        elif self.r_cfg.stop_mode == "atr":
+            raw = atr * self.r_cfg.atr_stop_multiplier
+        else:
+            raw = self.r_cfg.fixed_stop_points
         stop_dist = max(self.r_cfg.min_stop_points, min(self.r_cfg.max_stop_points, round_to_tick(raw)))
         tp_dist = round_to_tick(stop_dist * self.r_cfg.reward_risk_ratio)
         tick = self.c_cfg.tick_size
@@ -236,9 +255,12 @@ class NQIntradayStrategy:
             return None
 
         atr, rsi, vol_ratio = float(c["atr"]), float(c["rsi"]), float(c["vol_ratio"])
+        max_ext = self.entry_cfg.max_extension_atr if self.entry_cfg is not None else 0.0
         for sign, direction in ((1, "LONG"), (-1, "SHORT")):
             if not (self._regime_ok(sign, c, atr) and self._candle_ok(sign, c)):
                 continue
+            if max_ext > 0 and sign * (float(c["close"]) - float(c["ema_fast"])) > max_ext * atr:
+                continue                                    # do not chase an extended bar
             found = self._find_setup(sign, c, p, atr, rsi, vol_ratio)
             if found is None:
                 continue

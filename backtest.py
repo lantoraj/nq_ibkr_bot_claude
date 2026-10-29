@@ -21,6 +21,7 @@ import pandas as pd
 
 from config import BotConfig
 from context import attach_session_context
+from entry import confirm_ok, plan_entry
 from events import build_calendar
 from indicators import filter_rth, round_to_tick, to_session_time
 from metrics import compute_metrics
@@ -82,7 +83,7 @@ class Backtester:
     def __init__(self, config: BotConfig, strategy: Optional[NQIntradayStrategy] = None,
                  commission_per_side_usd: Optional[float] = None, slippage_ticks: Optional[int] = None) -> None:
         self.cfg = config
-        self.strategy = strategy or NQIntradayStrategy(config.strategy, config.risk, config.contract, config.context)
+        self.strategy = strategy or NQIntradayStrategy(config.strategy, config.risk, config.contract, config.context, config.entry)
         # explicit overrides kept for backward compatibility with the baseline API
         self.commission_per_side = commission_per_side_usd if commission_per_side_usd is not None \
             else config.commission_per_side
@@ -140,6 +141,8 @@ class Backtester:
         trades: List[SimulatedTrade] = []
         pending: Optional[TradeSignal] = None
         pending_idx = -1
+        pending_lim = 0.0
+        confirming: Optional[TradeSignal] = None
         mgr: Optional[StopManager] = None
         sig: Optional[TradeSignal] = None
         contracts = 0
@@ -211,7 +214,7 @@ class Backtester:
             if pending is not None:
                 s = pending
                 sgn = 1 if s.direction == "LONG" else -1
-                lim = round_to_tick(s.entry_price + sgn * c.risk.entry_limit_slippage_ticks * tick, tick)
+                lim = pending_lim
                 o, h, l = o_arr[i], h_arr[i], l_arr[i]
                 fill: Optional[float] = None
                 if (o <= lim) if sgn > 0 else (o >= lim):
@@ -230,6 +233,15 @@ class Backtester:
                     pending = None
                 continue
 
+            # 2b. signal waiting for its confirmation bar (this bar's close decides)
+            if confirming is not None:
+                s_conf, confirming = confirming, None
+                ok_now, _ = self.risk.can_open_trade(ts, current_bar_index=i)
+                if ok_now and confirm_ok(s_conf, c_arr[i], l_arr[i], h_arr[i], c):
+                    pending_lim, pending = plan_entry(s_conf.rebased(round_to_tick(c_arr[i], tick)), c)
+                    pending_idx = i
+                continue
+
             # 3. look for a new trade
             allowed, _ = self.risk.can_open_trade(ts, current_bar_index=i)
             if not allowed:
@@ -241,8 +253,11 @@ class Backtester:
                 sgn = 1 if signal.direction == "LONG" else -1
                 px = signal.entry_price + sgn * self._slip(costs.entry_slippage_ticks + costs.extra_entry_slippage_ticks)
                 start_position(signal, px, i, ts)
+            elif c.entry.confirm_bars > 0:
+                confirming = signal
             else:
-                pending, pending_idx = signal, i
+                pending_lim, pending = plan_entry(signal, c)
+                pending_idx = i
 
         # force-close at the end of the simulated window
         if mgr is not None:

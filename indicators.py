@@ -235,6 +235,7 @@ def enrich_indicators(
     kalman_r_meas: float = 1.0,
     hurst_lag_q: int = 4,
     hurst_window: int = 24,
+    swing_lookback: int = 3,
 ) -> pd.DataFrame:
     """
     Compute and attach all technical and quantitative v4 indicators to an OHLCV DataFrame.
@@ -267,6 +268,10 @@ def enrich_indicators(
 
     vol_ma = out["volume"].rolling(window=20, min_periods=1).mean().replace(0, 1)
     out["vol_ratio"] = out["volume"] / vol_ma
+
+    # Recent swing extremes (including the current bar) for structural stops
+    out["swing_low"] = out["low"].rolling(swing_lookback, min_periods=1).min()
+    out["swing_high"] = out["high"].rolling(swing_lookback, min_periods=1).max()
 
     # Rolling 3-bar high/low for momentum continuation triggers
     out["prev_3_high"] = out["high"].shift(1).rolling(3, min_periods=1).max()
