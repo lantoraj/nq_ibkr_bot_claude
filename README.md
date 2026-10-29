@@ -93,9 +93,11 @@ Full tables: [`reports/research_report.md`](reports/research_report.md).
 
 Findings on the 3-month sample (`reports/research_report.md`, section 9):
 
-* **Most of the profit comes from 8 tier-1 event days:** +$1,208 on 14 trades (1.16 R/trade), versus +$582 on 97 trades
-  (0.10 R/trade) on the other 58 days. Skipping event days cuts net from $1,789 to $582, so do **not** enable `skip_tier1_days`
-  on this evidence. Away from macro events the strategy is roughly break-even. This is the most important caveat so far.
+* **Correction after the deeper analysis (report section 11):** the 8 tier-1 event days did earn +$1,208, but that is
+  two days: the 2026-07-29 FOMC day (+$477, the widest-range day in the sample) and the 2026-10-14 CPI day (+$479).
+  The other six event days net +$252. Event days are not wider or more trending than other days on average, and only 2 of
+  the 8 best days are event days. So this is a **profit-concentration** problem, not an event effect (see below).
+  `skip_tier1_days` still hurts (net falls to +$582), but only because it removes those two days; do not enable it.
 * The event blackout + pre-event flatten changed nothing in the backtest (no trade was open into an event), so it is pure
   risk control. Keep it on for live trading.
 * The gap filter at 25-40% of the prior range keeps net PnL (+$1,782) with 14 fewer trades and lower drawdown ($574 vs $704),
@@ -105,6 +107,18 @@ Findings on the 3-month sample (`reports/research_report.md`, section 9):
   build environment. FOMC dates matched across sources; CPI dates are from secondary sites and marked UNVERIFIED. Confirm them
   and extend the file (it only protects against events it lists; the live runner warns when it is stale).
 * The CSV is an unadjusted continuous contract; gaps near the September roll include calendar spread.
+
+## Profit concentration (report section 11)
+
+* The top 3 days earn 80% of net profit and the top 5 earn 107%; **without the 5 best days the strategy loses $117.**
+  Only 29 of 66 days are positive. This is a classic trend-following fat tail, not a smooth edge.
+* Day range is the best explanation of a day's PnL (rank correlation +0.31); event status explains less (+0.17).
+  Against 8 random days from the 24 widest-range days, the event days beat only 81% of placebos, so volatility explains
+  most of it. Against any 8 random days they beat 98.5%.
+* Nothing known before 09:45 predicted the big days (prior-day range, opening 15-minute range, opening gap, ATR: all
+  rank correlations within +/-0.12). So a simple "trade only on volatile days" filter is not supported by this data.
+* Practical meaning: expect long flat or losing stretches punctuated by a few large winners, and size/psychology accordingly.
+  Whether those big days recur is the main thing a longer data set must answer.
 
 ## Entry-quality experiments (all default OFF; result: nothing beat the baseline)
 

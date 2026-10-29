@@ -352,10 +352,136 @@ def sec_entry(lab: Lab) -> str:
             "behave similarly. Each row is a hypothesis tested on the same 111-trade sample, so some will look good by chance.\n")
 
 
+def sec_eventdays(lab: Lab) -> str:
+    """Is the profit concentration about macro events, or about volatile trending days that events happen to produce?"""
+    from events import EventCalendar
+    cfg = lab.cfg()
+    tz = cfg.risk.timezone
+    cal = EventCalendar.from_csv(cfg.context.event_file, cfg.context, 120, tz)
+    ev = {}
+    for e in cal.events:
+        if e.tier == 1:
+            ev.setdefault(e.time.date(), []).append(e.name)
+    enr = lab.enriched(cfg)
+    et = pd.to_datetime(enr["timestamp"], utc=True).dt.tz_convert(tz)
+    g = enr.assign(_d=et.dt.date).groupby("_d")
+    day = pd.DataFrame({"open": g["open"].first(), "close": g["close"].last(), "hi": g["high"].max(), "lo": g["low"].min()})
+    day["range"] = day["hi"] - day["lo"]
+    day["range_pct"] = day["range"] / day["open"] * 100
+    day["eff"] = (day["close"] - day["open"]).abs() / day["range"]          # 1 = one-way trend day, 0 = round trip
+    day["range_rank"] = day["range"].rank(ascending=False).astype(int)
+
+    res = lab.run(cfg)
+    tdf = res["trades_df"].copy()
+    tdf["_d"] = pd.to_datetime(tdf["entry_time"], utc=True).dt.tz_convert(tz).dt.date
+    day["trades"] = tdf.groupby("_d").size().reindex(day.index).fillna(0).astype(int)
+    day["net"] = tdf.groupby("_d")["net_pnl_usd"].sum().reindex(day.index).fillna(0.0)
+    day["event"] = [", ".join(ev.get(d, [])) for d in day.index]
+    day["is_event"] = day["event"] != ""
+    out = "## 11. Macro-event day concentration\n\n"
+
+    # A. event days
+    ed = day[day["is_event"]].copy()
+    rows = [{"date": str(d), "event": r.event, "trades": r.trades, "net $": round(r.net, 0),
+             "day range pts": round(r.range, 0), "range rank (of %d)" % len(day): r.range_rank, "trend efficiency": round(r.eff, 2)}
+            for d, r in ed.iterrows()]
+    out += "**A. The tier-1 event days**\n\n" + md_table(rows)
+
+    # B. concentration across ALL days
+    net = day["net"].sort_values(ascending=False)
+    total = float(net.sum())
+    conc = []
+    for k in (1, 3, 5, 8):
+        conc.append({"top days": k, "their net $": round(float(net.iloc[:k].sum()), 0),
+                     "% of total net": round(100 * float(net.iloc[:k].sum()) / total, 0),
+                     "net WITHOUT them $": round(total - float(net.iloc[:k].sum()), 0)})
+    out += "\n**B. Profit concentration across all days** (total net $%.0f; %d of %d days positive, %d flat)\n\n" % (
+        total, int((day["net"] > 0).sum()), len(day), int((day["net"] == 0).sum())) + md_table(conc)
+    top_ev = [str(d) for d in net.index[:8] if d in ed.index]
+    out += "\nOf the 8 best days, %d are tier-1 event days.\n" % len(top_ev)
+
+    # C. event vs other days: volatility and efficiency
+    cmp_rows = []
+    for name, m in (("tier-1 event days", day["is_event"]), ("other days", ~day["is_event"])):
+        d = day[m]
+        cmp_rows.append({"group": name, "days": len(d), "mean range pts": round(float(d["range"].mean()), 0),
+                         "mean range %": round(float(d["range_pct"].mean()), 2), "mean trend efficiency": round(float(d["eff"].mean()), 2),
+                         "net $ / day": round(float(d["net"].mean()), 1), "trades / day": round(float(d["trades"].mean()), 2)})
+    out += "\n**C. Are event days just wider, more trending days?**\n\n" + md_table(cmp_rows)
+
+    # D. what explains daily PnL?
+    r_rng = day["net"].rank().corr(day["range"].rank())
+    r_eff = day["net"].rank().corr(day["eff"].rank())
+    r_ev = day["net"].rank().corr(day["is_event"].astype(int).rank())
+    out += ("\n**D. Rank correlation with daily net PnL:** day range %+.2f, trend efficiency %+.2f, is-event-day %+.2f\n"
+            % (r_rng, r_eff, r_ev))
+
+    # E. placebo tests
+    rng = np.random.default_rng(11)
+    n_ev = len(ed)
+    actual = float(ed["net"].sum())
+    nets = day["net"].to_numpy()
+    random_sets = np.array([nets[rng.choice(len(nets), n_ev, replace=False)].sum() for _ in range(20000)])
+    widest = day.sort_values("range", ascending=False).head(max(24, 3 * n_ev))
+    wn = widest["net"].to_numpy()
+    wide_sets = np.array([wn[rng.choice(len(wn), n_ev, replace=False)].sum() for _ in range(20000)])
+    nonev = day[~day["is_event"]]
+    eff_hi = nonev.sort_values("eff", ascending=False).head(24)["net"].to_numpy()
+    eff_sets = np.array([eff_hi[rng.choice(len(eff_hi), n_ev, replace=False)].sum() for _ in range(20000)])
+    pl = [
+        {"placebo: pick %d days at random from" % n_ev: "all %d days" % len(day), "event days' net $": round(actual, 0),
+         "placebo median $": round(float(np.median(random_sets)), 0), "placebo p95 $": round(float(np.percentile(random_sets, 95)), 0),
+         "event days beat % of placebos": round(float((random_sets < actual).mean() * 100), 1)},
+        {"placebo: pick %d days at random from" % n_ev: "the %d widest-range days" % len(widest), "event days' net $": round(actual, 0),
+         "placebo median $": round(float(np.median(wide_sets)), 0), "placebo p95 $": round(float(np.percentile(wide_sets, 95)), 0),
+         "event days beat % of placebos": round(float((wide_sets < actual).mean() * 100), 1)},
+        {"placebo: pick %d days at random from" % n_ev: "the 24 most one-directional non-event days", "event days' net $": round(actual, 0),
+         "placebo median $": round(float(np.median(eff_sets)), 0), "placebo p95 $": round(float(np.percentile(eff_sets, 95)), 0),
+         "event days beat % of placebos": round(float((eff_sets < actual).mean() * 100), 1)},
+    ]
+    out += "\n**E. Placebo tests: could any 8 days (or any 8 volatile days) have produced the event days' PnL?**\n\n" + md_table(pl)
+
+    # F. by event type
+    kinds = {}
+    for d, r in ed.iterrows():
+        k = "FOMC" if "FOMC" in r.event else ("CPI" if "CPI" in r.event else "NFP")
+        kinds.setdefault(k, []).append(r)
+    krows = [{"event type": k, "days": len(v), "trades": int(sum(x.trades for x in v)), "net $": round(float(sum(x.net for x in v)), 0)}
+             for k, v in sorted(kinds.items())]
+    out += "\n**F. By event type**\n\n" + md_table(krows)
+    # G. can anything known BEFORE the entry window predict the big days?
+    hh = et.dt.strftime("%H:%M")
+    pre = enr.assign(_d=et.dt.date, _h=hh)
+    first_bar = pre.groupby("_d").first()
+    opening = pre[(pre["_h"] >= "09:30") & (pre["_h"] < "09:45")].groupby("_d")
+    atr_at_entry = pre[pre["_h"] >= "09:44"].groupby("_d")["atr"].first()
+    feat = pd.DataFrame({
+        "prior-day range (PDH-PDL)": first_bar["pdh"] - first_bar["pdl"],
+        "opening 15-min range": opening["high"].max() - opening["low"].min(),
+        "abs(opening gap)": first_bar["gap_pts"].abs(),
+        "ATR at 09:45": atr_at_entry,
+    })
+    feat["net"] = day["net"]
+    g_rows, tert = [], []
+    for col in feat.columns[:-1]:
+        d = feat[[col, "net"]].dropna()
+        rho = d[col].rank().corr(d["net"].rank())
+        d = d.assign(bucket=pd.qcut(d[col].rank(method="first"), 3, labels=["low", "mid", "high"]))
+        b = d.groupby("bucket", observed=True)["net"].agg(["count", "sum"])
+        g_rows.append({"feature known before 09:45": col, "rank corr with day net": round(float(rho), 2), "days": len(d),
+                       "low third net $": round(float(b.loc["low", "sum"]), 0), "mid third net $": round(float(b.loc["mid", "sum"]), 0),
+                       "high third net $": round(float(b.loc["high", "sum"]), 0)})
+    out += ("\n**G. Can anything known before the entry window predict the profitable days?**\n\n" + md_table(g_rows) +
+            "\nFour features tested on 66 days: a correlation near 0.2 is within chance here, so only a strong, monotonic pattern "
+            "(low < mid < high) would be worth following up.\n")
+    out += ("\n8 days and 14 trades are a very small sample. Read this as a map of where the risk of being wrong is, not as a verdict.\n")
+    return out
+
+
 SECTIONS = {
     "baseline": sec_baseline, "ablation": sec_ablation, "stress": sec_stress, "sensitivity": sec_sensitivity,
     "split": sec_split, "walkforward": sec_walkforward, "random": sec_random, "bootstrap": sec_bootstrap,
-    "context": sec_context, "entry": sec_entry,
+    "context": sec_context, "entry": sec_entry, "eventdays": sec_eventdays,
 }
 
 

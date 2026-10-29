@@ -167,3 +167,67 @@ With this few event days the event filter cannot be judged statistically; its va
 | combo: confirmation + within 0.6 ATR | 26 | -338.99 | 0.75 | 863.67 | -0.116 | 10 | -812.0 | -572.09 | 233.1 |
 
 A variant is only interesting if it helps in BOTH halves and its neighbours (other retrace sizes, swing lengths) behave similarly. Each row is a hypothesis tested on the same 111-trade sample, so some will look good by chance.
+
+## 11. Macro-event day concentration
+
+**A. The tier-1 event days**
+
+| date | event | trades | net $ | day range pts | range rank (of 66) | trend efficiency |
+|---|---|---|---|---|---|---|
+| 2026-07-29 | FOMC rate decision | 2 | 477.0 | 790.0 | 1 | 0.74 |
+| 2026-08-07 | Employment Situation (NFP) | 2 | -82.0 | 299.0 | 36 | 0.4 |
+| 2026-08-12 | CPI | 2 | -163.0 | 185.0 | 63 | 0.76 |
+| 2026-09-04 | Employment Situation (NFP) | 2 | 195.0 | 226.0 | 51 | 0.09 |
+| 2026-09-11 | CPI | 1 | -43.0 | 167.0 | 65 | 0.19 |
+| 2026-09-16 | FOMC rate decision | 2 | 110.0 | 500.0 | 13 | 0.27 |
+| 2026-10-02 | Employment Situation (NFP) | 1 | 235.0 | 295.0 | 38 | 0.27 |
+| 2026-10-14 | CPI | 2 | 479.0 | 582.0 | 8 | 0.63 |
+
+**B. Profit concentration across all days** (total net $1789; 29 of 66 days positive, 3 flat)
+
+| top days | their net $ | % of total net | net WITHOUT them $ |
+|---|---|---|---|
+| 1 | 479.0 | 27.0 | 1311.0 |
+| 3 | 1428.0 | 80.0 | 361.0 |
+| 5 | 1907.0 | 107.0 | -117.0 |
+| 8 | 2623.0 | 147.0 | -834.0 |
+
+Of the 8 best days, 2 are tier-1 event days.
+
+**C. Are event days just wider, more trending days?**
+
+| group | days | mean range pts | mean range % | mean trend efficiency | net $ / day | trades / day |
+|---|---|---|---|---|---|---|
+| tier-1 event days | 8 | 381.0 | 1.29 | 0.42 | 150.9 | 1.75 |
+| other days | 58 | 361.0 | 1.21 | 0.46 | 10.0 | 1.67 |
+
+**D. Rank correlation with daily net PnL:** day range +0.31, trend efficiency +0.21, is-event-day +0.17
+
+**E. Placebo tests: could any 8 days (or any 8 volatile days) have produced the event days' PnL?**
+
+| placebo: pick 8 days at random from | event days' net $ | placebo median $ | placebo p95 $ | event days beat % of placebos |
+|---|---|---|---|---|
+| all 66 days | 1208.0 | 185.0 | 947.0 | 98.5 |
+| the 24 widest-range days | 1208.0 | 800.0 | 1550.0 | 81.4 |
+| the 24 most one-directional non-event days | 1208.0 | 249.0 | 761.0 | 99.9 |
+
+**F. By event type**
+
+| event type | days | trades | net $ |
+|---|---|---|---|
+| CPI | 3 | 5 | 272.0 |
+| FOMC | 2 | 4 | 587.0 |
+| NFP | 3 | 5 | 349.0 |
+
+**G. Can anything known before the entry window predict the profitable days?**
+
+| feature known before 09:45 | rank corr with day net | days | low third net $ | mid third net $ | high third net $ |
+|---|---|---|---|---|---|
+| prior-day range (PDH-PDL) | -0.01 | 65 | 622.0 | 94.0 | 1073.0 |
+| opening 15-min range | 0.12 | 66 | -315.0 | 1592.0 | 512.0 |
+| abs(opening gap) | -0.1 | 65 | 613.0 | 835.0 | 341.0 |
+| ATR at 09:45 | -0.02 | 66 | 117.0 | 621.0 | 1051.0 |
+
+Four features tested on 66 days: a correlation near 0.2 is within chance here, so only a strong, monotonic pattern (low < mid < high) would be worth following up.
+
+8 days and 14 trades are a very small sample. Read this as a map of where the risk of being wrong is, not as a verdict.
