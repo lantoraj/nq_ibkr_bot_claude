@@ -25,7 +25,7 @@ but with a realistic backtester, a statistical validation harness, and a live en
 | Contract | nearest unexpired contract | rolls 8 days before expiry |
 | Time zones | naive timestamps silently treated as UTC | naive timestamps rejected; IB bars requested as UTC |
 | Live safety | warning log only | `--confirm-live I-ACCEPT-REAL-MONEY-RISK` required |
-| Tests | 4 | 34 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests) |
+| Tests | 4 | 47 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context tests) |
 
 ## Layout
 
@@ -34,6 +34,8 @@ config.py          all settings (strategy / risk / costs / backtest / execution)
 indicators.py      EMA, ATR, RSI, VWAP+z, Kalman velocity, variance-ratio Hurst, PDH/PDL, ORB, RTH filter
 strategy.py        signal engine (+ RandomEntryStrategy null benchmark)
 trade_mgmt.py      StopManager: break-even + time-decay, shared by backtest and live
+context.py         opening gap + overnight (Globex) range per session
+events.py          economic-event calendar: entry blackout, flatten-before-event, skip tier-1 days
 risk_manager.py    daily limits, session window, sizing, serialisable state
 backtest.py        bar-by-bar simulator (signal_close legacy model | next_bar realistic model)
 metrics.py         metrics + bootstrap
@@ -80,12 +82,36 @@ Full tables: [`reports/research_report.md`](reports/research_report.md).
 * Edge is concentrated in the last ~5 weeks (first half +$455, second half +$1,334).
 * Bootstrap: ~6% chance a 111-trade sample is net negative; p95 max drawdown ~$1,300 per MNQ.
 
+## Market-context filters (all default OFF)
+
+| Flag | What it does |
+|---|---|
+| `--event-filter` | no entries from 10 min before to 15 min after an event in `data/economic_events.csv`; flattens any open position 5 min before an event (never hold through FOMC/CPI/NFP); optional `skip_tier1_days` |
+| `--gap-filter` | blocks trades against an unfilled opening gap larger than 25% of the prior day's range |
+| `--overnight-guard` | treats the overnight high/low as walls (like PDH/PDL); needs ETH bars: `download-history --include-eth` |
+
+Findings on the 3-month sample (`reports/research_report.md`, section 9):
+
+* **Most of the profit comes from 8 tier-1 event days:** +$1,208 on 14 trades (1.16 R/trade), versus +$582 on 97 trades
+  (0.10 R/trade) on the other 58 days. Skipping event days cuts net from $1,789 to $582, so do **not** enable `skip_tier1_days`
+  on this evidence. Away from macro events the strategy is roughly break-even. This is the most important caveat so far.
+* The event blackout + pre-event flatten changed nothing in the backtest (no trade was open into an event), so it is pure
+  risk control. Keep it on for live trading.
+* The gap filter at 25-40% of the prior range keeps net PnL (+$1,782) with 14 fewer trades and lower drawdown ($574 vs $704),
+  but 10% is worse and this is in-sample on roll-contaminated gaps. Not enough to enable by default.
+* The overnight guard **could not be evaluated**: the bundled CSV starts at 09:30 ET. It is implemented and unit-tested.
+* `data/economic_events.csv` was assembled from web search because bls.gov and federalreserve.gov were unreachable from the
+  build environment. FOMC dates matched across sources; CPI dates are from secondary sites and marked UNVERIFIED. Confirm them
+  and extend the file (it only protects against events it lists; the live runner warns when it is stale).
+* The CSV is an unadjusted continuous contract; gaps near the September roll include calendar spread.
+
 ## Next steps before trusting it
 
 1. Pull 1-2 years of 2-min data (`download-history`) and re-run `research.py`; judge the strategy on that, not on these 66 days.
-2. Paper trade 4-6 weeks; compare actual fills against `next_bar` assumptions.
-3. Decide on removing the confidence gate / simplifying parameters based on the longer sample.
-4. `server_side_breakeven` (IB adjusted stop, survives bot death) is implemented but **untested against a live IB**; try on paper first.
+2. Download with `--include-eth`, back-adjust or use per-contract data, then re-test the gap and overnight filters.
+3. Paper trade 4-6 weeks; compare actual fills against `next_bar` assumptions.
+4. Decide on removing the confidence gate / simplifying parameters based on the longer sample.
+5. `server_side_breakeven` (IB adjusted stop, survives bot death) is implemented but **untested against a live IB**; try on paper first.
 
 ## Known limits
 

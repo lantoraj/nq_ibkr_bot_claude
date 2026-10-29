@@ -251,9 +251,63 @@ def sec_bootstrap(lab: Lab) -> str:
             "\nThe single-path max drawdown understates likely drawdown; use `maxdd_p95` for sizing/capital.\n")
 
 
+def sec_context(lab: Lab) -> str:
+    from events import EventCalendar
+    out = "## 9. Market-context filters (event calendar, opening gap, overnight range)\n\n"
+    base_cfg = lab.cfg()
+    cal = EventCalendar.from_csv(base_cfg.context.event_file, base_cfg.context, 120, base_cfg.risk.timezone)
+    sample = set(lab.dates())
+    t1 = [d for d in cal.days(tier=1) if d in sample]
+
+    def ev(**kw):
+        return [lambda c: setattr(c.context, "use_event_filter", True)] + [
+            (lambda k, v: (lambda c: setattr(c.context, k, v)))(k, v) for k, v in kw.items()]
+
+    def gap(v):
+        return [lambda c: setattr(c.context, "use_gap_filter", True), lambda c: setattr(c.context, "gap_min_prior_range", v)]
+
+    variants = {
+        "default (no context filters)": [],
+        "event windows + flatten before event": ev(),
+        "  + skip all tier-1 event days": ev(skip_tier1_days=True),
+        "gap filter, gap >= 10% of prior-day range": gap(0.10),
+        "gap filter, gap >= 25% of prior-day range": gap(0.25),
+        "gap filter, gap >= 40% of prior-day range": gap(0.40),
+        "gap filter, gap >= 60% of prior-day range": gap(0.60),
+    }
+    rows = [_row(n, lab.run(lab.cfg(*m))["metrics"]) for n, m in variants.items()]
+    out += md_table(rows)
+
+    res = lab.run(lab.cfg())
+    tdf = res["trades_df"]
+    if not tdf.empty:
+        d = pd.to_datetime(tdf["entry_time"], utc=True).dt.tz_convert(base_cfg.risk.timezone).dt.date
+        on_ev = d.isin(set(t1))
+        desc = []
+        for name, m in (("tier-1 event days", on_ev), ("all other days", ~on_ev)):
+            sub = tdf[m]
+            desc.append({"group": name, "sessions": len(t1) if m is on_ev else len(sample) - len(t1), "trades": len(sub),
+                         "net $": round(float(sub["net_pnl_usd"].sum()), 2),
+                         "avg R": round(float(sub["r_multiple"].mean()), 3) if len(sub) else 0})
+        out += "\n**Default strategy on tier-1 event days vs other days**\n\n" + md_table(desc)
+
+    e = lab.enriched(base_cfg)
+    valid_on = int(e.drop_duplicates(subset=["prev_close"])["on_high"].notna().sum())
+    out += (f"\n**Sample coverage.** {len(t1)} tier-1 event days fall inside this {len(sample)}-session sample. "
+            f"Overnight range is available for {valid_on} sessions: the bundled CSV starts at 09:30 ET, so the overnight guard "
+            "cannot be evaluated here. Download data with `--include-eth` and re-run.\n"
+            "\n**Data caveat.** The CSV is an unadjusted IBKR continuous contract. The largest gaps cluster around the September roll "
+            "(e.g. 2026-09-10/11/14), so some gaps include the calendar spread between contracts and are not real overnight moves. "
+            "Back-adjust or use per-contract data before trusting gap statistics.\n"
+            "\nWith this few event days the event filter cannot be judged statistically; its value is risk control "
+            "(not holding through FOMC/CPI/NFP), not a measured edge.\n")
+    return out
+
+
 SECTIONS = {
     "baseline": sec_baseline, "ablation": sec_ablation, "stress": sec_stress, "sensitivity": sec_sensitivity,
     "split": sec_split, "walkforward": sec_walkforward, "random": sec_random, "bootstrap": sec_bootstrap,
+    "context": sec_context,
 }
 
 

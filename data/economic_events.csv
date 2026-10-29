@@ -1,0 +1,13 @@
+datetime_et,name,tier,source
+2026-07-29 14:00,FOMC rate decision,1,federalreserve.gov calendar as reported by several sites (web search; confirm)
+2026-08-07 08:30,Employment Situation (NFP),1,BLS schedule via web search (confirm on bls.gov)
+2026-08-12 08:30,CPI,1,secondary calendar site via web search (UNVERIFIED - confirm on bls.gov)
+2026-09-04 08:30,Employment Situation (NFP),1,BLS schedule via web search (confirm on bls.gov)
+2026-09-11 08:30,CPI,1,market-data site citing BLS via web search (UNVERIFIED - confirm on bls.gov)
+2026-09-16 14:00,FOMC rate decision,1,federalreserve.gov calendar as reported by several sites (web search; confirm)
+2026-10-02 08:30,Employment Situation (NFP),1,BLS schedule via web search (confirm on bls.gov)
+2026-10-14 08:30,CPI,1,secondary calendar site via web search (UNVERIFIED - confirm on bls.gov)
+2026-10-28 14:00,FOMC rate decision,1,federalreserve.gov calendar as reported by several sites (web search; confirm)
+2026-11-06 08:30,Employment Situation (NFP),1,BLS schedule via web search (confirm on bls.gov)
+2026-11-10 08:30,CPI,1,secondary calendar site via web search (UNVERIFIED - confirm on bls.gov)
+2026-12-09 14:00,FOMC rate decision,1,federalreserve.gov calendar as reported by several sites (web search; confirm)

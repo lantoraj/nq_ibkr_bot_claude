@@ -118,3 +118,28 @@ A useful signal should sit well above the random p95. Identical exits mean any g
 | -78.95 | 1747.23 | 3739.94 | 5.9 | 671.13 | 1296.89 |
 
 The single-path max drawdown understates likely drawdown; use `maxdd_p95` for sizing/capital.
+
+## 9. Market-context filters (event calendar, opening gap, overnight range)
+
+| scenario | total_trades | win_rate_pct | scratch_pct | win_rate_ex_scratch_pct | net_pnl_usd | profit_factor | max_drawdown_usd | expectancy_r | sharpe_daily_ann | profitable_months |
+|---|---|---|---|---|---|---|---|---|---|---|
+| default (no context filters) | 111 | 52.25 | 29.7 | 32.05 | 1789.37 | 1.52 | 703.63 | 0.231 | 2.72 | 4/4 |
+| event windows + flatten before event | 111 | 52.25 | 29.7 | 32.05 | 1789.37 | 1.52 | 703.63 | 0.231 | 2.72 | 4/4 |
+|   + skip all tier-1 event days | 97 | 50.52 | 32.0 | 27.27 | 581.87 | 1.19 | 628.57 | 0.097 | 1.09 | 2/4 |
+| gap filter, gap >= 10% of prior-day range | 97 | 55.67 | 36.1 | 30.65 | 1265.44 | 1.45 | 778.15 | 0.178 | 2.08 | 3/4 |
+| gap filter, gap >= 25% of prior-day range | 97 | 56.7 | 35.1 | 33.33 | 1782.23 | 1.65 | 574.37 | 0.25 | 2.86 | 4/4 |
+| gap filter, gap >= 40% of prior-day range | 97 | 56.7 | 35.1 | 33.33 | 1782.23 | 1.65 | 574.37 | 0.25 | 2.86 | 4/4 |
+| gap filter, gap >= 60% of prior-day range | 99 | 55.56 | 33.3 | 33.33 | 1797.62 | 1.62 | 656.61 | 0.255 | 2.83 | 4/4 |
+
+**Default strategy on tier-1 event days vs other days**
+
+| group | sessions | trades | net $ | avg R |
+|---|---|---|---|---|
+| tier-1 event days | 8 | 14 | 1207.5 | 1.159 |
+| all other days | 58 | 97 | 581.87 | 0.097 |
+
+**Sample coverage.** 8 tier-1 event days fall inside this 66-session sample. Overnight range is available for 0 sessions: the bundled CSV starts at 09:30 ET, so the overnight guard cannot be evaluated here. Download data with `--include-eth` and re-run.
+
+**Data caveat.** The CSV is an unadjusted IBKR continuous contract. The largest gaps cluster around the September roll (e.g. 2026-09-10/11/14), so some gaps include the calendar spread between contracts and are not real overnight moves. Back-adjust or use per-contract data before trusting gap statistics.
+
+With this few event days the event filter cannot be judged statistically; its value is risk control (not holding through FOMC/CPI/NFP), not a measured edge.

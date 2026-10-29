@@ -39,6 +39,7 @@ class RiskManager:
         self.c_cfg = contract_cfg
         self.tz = pytz.timezone(self.r_cfg.timezone)
         self.state = DailyRiskState()
+        self.calendar = None          # optional events.EventCalendar
 
         self._entry_start = self._parse_hhmm(self.r_cfg.entry_start_time)
         self._entry_end = self._parse_hhmm(self.r_cfg.entry_end_time)
@@ -93,6 +94,9 @@ class RiskManager:
         local_dt = self._to_session_dt(ts)
         return local_dt.time() >= self._flatten_time
 
+    def should_flatten_event(self, ts: pd.Timestamp) -> bool:
+        return self.calendar is not None and self.calendar.flatten_due(ts) is not None
+
     def is_within_entry_window(self, ts: pd.Timestamp) -> bool:
         """Return True if current timestamp falls within allowed intraday entry hours."""
         if not self.r_cfg.rth_only:
@@ -117,6 +121,11 @@ class RiskManager:
 
         if not self.is_within_entry_window(ts):
             return False, "Outside allowed RTH entry time window"
+
+        if self.calendar is not None:
+            blocked = self.calendar.blocks_entry(ts)
+            if blocked:
+                return False, blocked
 
         if self.state.realized_pnl_usd <= - abs(self.r_cfg.max_daily_loss_usd):
             self.state.halted = True

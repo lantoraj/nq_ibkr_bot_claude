@@ -13,7 +13,7 @@ from typing import Literal, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from config import ContractConfig, RiskConfig, StrategyConfig
+from config import ContextConfig, ContractConfig, RiskConfig, StrategyConfig
 from indicators import enrich_indicators, round_to_tick
 
 SignalDirection = Literal["LONG", "SHORT"]
@@ -47,7 +47,9 @@ def _in_band(x: float, band: Tuple[float, float]) -> bool:
 class NQIntradayStrategy:
     """Hybrid EMA(9/21/50) + session-VWAP z-band + PDH/PDL + ORB strategy with a confidence gate."""
 
-    def __init__(self, strategy_cfg: StrategyConfig, risk_cfg: RiskConfig, contract_cfg: ContractConfig) -> None:
+    def __init__(self, strategy_cfg: StrategyConfig, risk_cfg: RiskConfig, contract_cfg: ContractConfig,
+                 context_cfg: Optional[ContextConfig] = None) -> None:
+        self.ctx_cfg = context_cfg
         self.s_cfg = strategy_cfg
         self.r_cfg = risk_cfg
         self.c_cfg = contract_cfg
@@ -107,6 +109,23 @@ class NQIntradayStrategy:
             if pd.notna(level):
                 dist = sign * (float(level) - close_p)  # distance to the wall in trade direction
                 if 0 < dist < s.pdh_pdl_buffer_atr * atr:
+                    return False
+        ctx = self.ctx_cfg
+        if ctx is not None and ctx.use_overnight_guard:
+            lvl = c.get("on_high" if sign > 0 else "on_low", np.nan)
+            if pd.notna(lvl):
+                dist = sign * (float(lvl) - close_p)
+                if 0 < dist < ctx.overnight_buffer_atr * atr:
+                    return False
+        if ctx is not None and ctx.use_gap_filter:
+            gap, prev_close = c.get("gap_pts", np.nan), c.get("prev_close", np.nan)
+            pdh_, pdl_ = c.get("pdh", np.nan), c.get("pdl", np.nan)
+            prior_range = float(pdh_) - float(pdl_) if pd.notna(pdh_) and pd.notna(pdl_) else np.nan
+            if pd.notna(gap) and pd.notna(prev_close) and pd.notna(prior_range) \
+                    and abs(float(gap)) >= ctx.gap_min_prior_range * prior_range:
+                gap_dir = 1 if gap > 0 else -1
+                unfilled = gap_dir * (close_p - float(prev_close)) > 0
+                if unfilled and sign != gap_dir:                 # trading against an unfilled opening gap
                     return False
         return True
 

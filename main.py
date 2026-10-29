@@ -38,6 +38,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--port", type=int, default=0)
     p.add_argument("--client-id", type=int, default=101)
     p.add_argument("--fill-model", choices=["next_bar", "signal_close"], default="next_bar")
+    p.add_argument("--include-eth", action="store_true", help="download-history: include overnight bars (needed for the overnight guard)")
+    p.add_argument("--event-filter", action="store_true", help="enable economic-event calendar filter")
+    p.add_argument("--gap-filter", action="store_true", help="block trades against an unfilled opening gap")
+    p.add_argument("--overnight-guard", action="store_true", help="treat overnight high/low as walls (needs ETH data)")
     p.add_argument("--state-file", default="state/bot_state.json")
     p.add_argument("--confirm-live", default="", help=f"must equal {LIVE_CONFIRMATION} to trade a live account")
     return p.parse_args(argv)
@@ -55,6 +59,9 @@ def build_config(args: argparse.Namespace) -> BotConfig:
     cfg.ibkr.client_id = args.client_id
     cfg.backtest.fill_model = args.fill_model
     cfg.execution.state_file = args.state_file
+    cfg.context.use_event_filter = args.event_filter
+    cfg.context.use_gap_filter = args.gap_filter
+    cfg.context.use_overnight_guard = args.overnight_guard
     if args.port > 0:
         if args.mode == "live":
             cfg.ibkr.live_port = args.port
@@ -95,7 +102,7 @@ def main(argv=None) -> int:
     if args.mode == "download-history":
         out = args.csv or f"data/{cfg.contract.symbol.lower()}_history.csv"
         Path(out).parent.mkdir(parents=True, exist_ok=True)
-        IBKRNQBotRunner(cfg, mode="paper").download_historical_csv(out, duration=args.duration)
+        IBKRNQBotRunner(cfg, mode="paper").download_historical_csv(out, duration=args.duration, include_eth=args.include_eth)
         return 0
 
     if args.mode == "live":

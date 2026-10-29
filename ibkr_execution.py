@@ -28,6 +28,8 @@ import pandas as pd
 from ib_async import IB, BarDataList, Contract, Future, LimitOrder, MarketOrder, StopOrder, Trade, util
 
 from config import BotConfig
+from context import attach_session_context
+from events import build_calendar
 from indicators import filter_rth, round_to_tick, to_session_time
 from risk_manager import RiskManager
 from state_store import StateStore
@@ -96,10 +98,13 @@ class IBKRNQBotRunner:
         self.cfg = config
         self.mode = mode.lower()
         self.ib = ib or IB()
-        self.strategy = NQIntradayStrategy(config.strategy, config.risk, config.contract)
+        self.strategy = NQIntradayStrategy(config.strategy, config.risk, config.contract, config.context)
         self.risk = RiskManager(config.risk, config.contract)
-        self.store = StateStore(config.execution.state_file)
         self.bar_sec = BAR_SECONDS[config.strategy.bar_size]
+        self.risk.calendar = build_calendar(config, self.bar_sec)
+        if self.risk.calendar is not None and self.risk.calendar.is_stale(pd.Timestamp.now(tz=config.risk.timezone)):
+            logger.warning("Event calendar %s lists no events in the next 21 days - update it", config.context.event_file)
+        self.store = StateStore(config.execution.state_file)
 
         self.contract: Optional[Contract] = None
         self.bars: Optional[BarDataList] = None
@@ -369,6 +374,7 @@ class IBKRNQBotRunner:
             df = df.iloc[:-1]                         # drop the still-forming bar
         df = df[["timestamp", "open", "high", "low", "close", "volume"]].reset_index(drop=True)
         df["timestamp"] = to_session_time(df["timestamp"], self.cfg.risk.timezone)   # rejects naive stamps
+        df = attach_session_context(df, self.cfg.risk.timezone, self.cfg.risk.rth_open_time, self.cfg.risk.rth_close_time)
         return filter_rth(df, self.cfg.risk.timezone, self.cfg.risk.rth_open_time, self.cfg.risk.rth_close_time)
 
     def _on_bar_update(self, bars: BarDataList, has_new_bar: bool) -> None:
@@ -397,6 +403,11 @@ class IBKRNQBotRunner:
         if self.risk.should_flatten_eod(ts):
             if self.has_open_position_or_orders():
                 self.flatten_all("End of Day Auto-Flatten")
+            return
+
+        if self.risk.should_flatten_event(ts):
+            if self.has_open_position_or_orders():
+                self.flatten_all("Pre-event flatten")
             return
 
         br = self.active
@@ -544,8 +555,8 @@ class IBKRNQBotRunner:
                     self.cfg.risk.rth_only)
         self.bars = await self.ib.reqHistoricalDataAsync(
             self.contract, endDateTime="", durationStr=self.cfg.strategy.history_duration,
-            barSizeSetting=self.cfg.strategy.bar_size, whatToShow="TRADES", useRTH=self.cfg.risk.rth_only,
-            formatDate=2, keepUpToDate=True)
+            barSizeSetting=self.cfg.strategy.bar_size, whatToShow="TRADES",
+            useRTH=self.cfg.risk.rth_only and not self.cfg.context.needs_eth_data, formatDate=2, keepUpToDate=True)
         self.bars.updateEvent += self._on_bar_update
         self._last_update_mono = _time.monotonic()
         self._needs_resubscribe = False
@@ -631,7 +642,7 @@ class IBKRNQBotRunner:
                 self.ib.disconnect()
 
     # ------------------------------------------------------------------ history download
-    def download_historical_csv(self, output_path: str, duration: str = "5 D") -> pd.DataFrame:
+    def download_historical_csv(self, output_path: str, duration: str = "5 D", include_eth: bool = False) -> pd.DataFrame:
         from ib_async import ContFuture
         port = self.cfg.ibkr.paper_port if self.mode == "paper" else self.cfg.ibkr.live_port
         self.ib.connect(self.cfg.ibkr.host, port, clientId=self.cfg.ibkr.client_id, timeout=self.cfg.ibkr.timeout)
@@ -647,7 +658,8 @@ class IBKRNQBotRunner:
                 target = pick_contract(details, self._now_et_date(), self.cfg.execution.roll_days_before_expiry)
             bars = self.ib.reqHistoricalData(target, endDateTime="", durationStr=duration,
                                              barSizeSetting=self.cfg.strategy.bar_size, whatToShow="TRADES",
-                                             useRTH=self.cfg.risk.rth_only, formatDate=2, keepUpToDate=False, timeout=120)
+                                             useRTH=self.cfg.risk.rth_only and not include_eth, formatDate=2, keepUpToDate=False,
+                                             timeout=120)
             df = util.df(bars)
             if df is None or df.empty:
                 raise RuntimeError("No historical bars returned from IBKR.")

@@ -274,3 +274,17 @@ def test_contract_rolls_before_expiry():
 def test_live_mode_requires_explicit_confirmation(capsys):
     import main
     assert main.main(["--mode", "live"]) == 2
+
+
+# ------------------------------------------------------------------ event flatten in the live loop
+def test_live_loop_flattens_before_event_and_blocks_entries(tmp_path):
+    from events import Event, EventCalendar
+    r = make(tmp_path)
+    r.cfg.context.use_event_filter = True
+    r.risk.calendar = EventCalendar([Event(pd.Timestamp("2026-10-28 14:00", tz=NY), "FOMC", 1)], r.cfg.context, 120, NY)
+    calls = []
+    r.flatten_all = lambda reason="": calls.append(reason)
+    _open_position(r, 1)
+    df = bar_df("2026-10-28 13:56", 29010, 28995)
+    r.process_closed_bar(df)
+    assert calls == ["Pre-event flatten"]

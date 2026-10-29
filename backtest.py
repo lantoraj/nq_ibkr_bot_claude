@@ -20,6 +20,8 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from config import BotConfig
+from context import attach_session_context
+from events import build_calendar
 from indicators import filter_rth, round_to_tick, to_session_time
 from metrics import compute_metrics
 from risk_manager import RiskManager
@@ -64,6 +66,7 @@ def prepare_bars(df: pd.DataFrame, cfg: BotConfig) -> pd.DataFrame:
                 .dropna()
                 .reset_index()
             )
+    work = attach_session_context(work, cfg.risk.timezone, cfg.risk.rth_open_time, cfg.risk.rth_close_time)
     if cfg.backtest.rth_filter_data:
         work = filter_rth(work, cfg.risk.timezone, cfg.risk.rth_open_time, cfg.risk.rth_close_time)
     return work.reset_index(drop=True)
@@ -79,7 +82,7 @@ class Backtester:
     def __init__(self, config: BotConfig, strategy: Optional[NQIntradayStrategy] = None,
                  commission_per_side_usd: Optional[float] = None, slippage_ticks: Optional[int] = None) -> None:
         self.cfg = config
-        self.strategy = strategy or NQIntradayStrategy(config.strategy, config.risk, config.contract)
+        self.strategy = strategy or NQIntradayStrategy(config.strategy, config.risk, config.contract, config.context)
         # explicit overrides kept for backward compatibility with the baseline API
         self.commission_per_side = commission_per_side_usd if commission_per_side_usd is not None \
             else config.commission_per_side
@@ -87,7 +90,12 @@ class Backtester:
             config.costs.stop_slippage_ticks = slippage_ticks
             config.costs.eod_slippage_ticks = slippage_ticks
             config.costs.entry_slippage_ticks = slippage_ticks
-        self.risk = RiskManager(config.risk, config.contract)
+        self.risk = self._new_risk()
+
+    def _new_risk(self) -> RiskManager:
+        rm = RiskManager(self.cfg.risk, self.cfg.contract)
+        rm.calendar = build_calendar(self.cfg, {"1 min": 60, "2 mins": 120, "5 mins": 300}[self.cfg.strategy.bar_size])
+        return rm
 
     # ------------------------------------------------------------------ helpers
     def _slip(self, ticks: int) -> float:
@@ -107,7 +115,7 @@ class Backtester:
                 raise ValueError("Provide df or enriched")
             enriched = self.enrich(df)
 
-        self.risk = RiskManager(self.cfg.risk, self.cfg.contract)
+        self.risk = self._new_risk()
         c = self.cfg
         point_val = c.contract.point_value
         tick = c.contract.tick_size
@@ -182,6 +190,9 @@ class Backtester:
             if self.risk.should_flatten_eod(ts):
                 close_trade(cl - s * self._slip(costs.eod_slippage_ticks), "EOD Flatten", i, ts)
                 return True
+            if self.risk.should_flatten_event(ts):
+                close_trade(cl - s * self._slip(costs.eod_slippage_ticks), "Event Flatten", i, ts)
+                return True
             if not fill_bar:
                 mgr.update(h, l, i - fill_idx)
             return False
@@ -215,7 +226,7 @@ class Backtester:
                     continue
                 waited = i - pending_idx
                 expired = c.risk.cancel_unfilled_entry_bars > 0 and waited >= c.risk.cancel_unfilled_entry_bars
-                if expired or self.risk.should_flatten_eod(ts):
+                if expired or self.risk.should_flatten_eod(ts) or self.risk.should_flatten_event(ts):
                     pending = None
                 continue
 

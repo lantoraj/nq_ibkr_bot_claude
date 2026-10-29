@@ -168,6 +168,30 @@ class ExecutionConfig:
 
 
 @dataclass
+class ContextConfig:
+    """Market-context filters. All default OFF so the baseline behaviour (and its regression tests) is unchanged."""
+    # Economic-event calendar (CSV: datetime_et,name,tier). Tier 1 = FOMC / CPI / NFP class events.
+    use_event_filter: bool = False
+    event_file: str = "data/economic_events.csv"
+    event_block_before_min: int = 10      # no new entries from N min before an event ...
+    event_block_after_min: int = 15       # ... until N min after it
+    event_flatten_before_min: int = 5     # flatten open positions N min before an event (never hold through it)
+    skip_tier1_days: bool = False         # stand aside for the whole session on tier-1 event days
+
+    # Opening-gap filter: block trades AGAINST an unfilled gap of at least gap_min_prior_range * (PDH - PDL)
+    use_gap_filter: bool = False
+    gap_min_prior_range: float = 0.25
+
+    # Overnight (Globex) high/low as walls, like PDH/PDL. Needs ETH bars (download with --include-eth).
+    use_overnight_guard: bool = False
+    overnight_buffer_atr: float = 0.5
+
+    @property
+    def needs_eth_data(self) -> bool:
+        return self.use_overnight_guard
+
+
+@dataclass
 class BotConfig:
     """Master configuration container."""
     ibkr: IBKRConfig = field(default_factory=IBKRConfig)
@@ -177,6 +201,7 @@ class BotConfig:
     costs: CostConfig = field(default_factory=CostConfig)
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    context: ContextConfig = field(default_factory=ContextConfig)
 
     @property
     def commission_per_side(self) -> float:
