@@ -38,6 +38,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--port", type=int, default=0)
     p.add_argument("--client-id", type=int, default=101)
     p.add_argument("--fill-model", choices=["next_bar", "signal_close"], default="next_bar")
+    p.add_argument("--years", type=float, default=0.0, help="download-history: stitched, back-adjusted multi-contract history of N years")
     p.add_argument("--include-eth", action="store_true", help="download-history: include overnight bars (needed for the overnight guard)")
     p.add_argument("--event-filter", action="store_true", help="enable economic-event calendar filter")
     p.add_argument("--gap-filter", action="store_true", help="block trades against an unfilled opening gap")
@@ -113,7 +114,16 @@ def main(argv=None) -> int:
     if args.mode == "download-history":
         out = args.csv or f"data/{cfg.contract.symbol.lower()}_history.csv"
         Path(out).parent.mkdir(parents=True, exist_ok=True)
-        IBKRNQBotRunner(cfg, mode="paper").download_historical_csv(out, duration=args.duration, include_eth=args.include_eth)
+        runner = IBKRNQBotRunner(cfg, mode="paper")
+        if args.years > 0:
+            from history import download_stitched
+            runner.ib.connect(cfg.ibkr.host, cfg.ibkr.paper_port, clientId=cfg.ibkr.client_id, timeout=cfg.ibkr.timeout)
+            try:
+                download_stitched(runner.ib, cfg, args.years, args.include_eth, out)
+            finally:
+                runner.ib.disconnect()
+        else:
+            runner.download_historical_csv(out, duration=args.duration, include_eth=args.include_eth)
         return 0
 
     if args.mode == "live":

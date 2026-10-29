@@ -172,8 +172,10 @@ def sec_split(lab: Lab) -> str:
             "\nParameters were chosen looking at the whole sample, so this is a stability check, not out-of-sample proof.\n")
 
 
-def sec_walkforward(lab: Lab, train_days: int = 30, test_days: int = 10) -> str:
+def sec_walkforward(lab: Lab, train_days: Optional[int] = None, test_days: Optional[int] = None) -> str:
     dates = lab.dates()
+    if train_days is None:                       # scale the windows to the amount of data
+        train_days, test_days = (30, 10) if len(dates) <= 100 else (120, 30)
     grid = list(itertools.product([1.0, 1.2, 1.5], [2.0, 3.0], [0.50, 0.58, 0.66]))
 
     def score(m: Dict) -> float:
@@ -293,6 +295,11 @@ def sec_context(lab: Lab) -> str:
 
     e = lab.enriched(base_cfg)
     valid_on = int(e.drop_duplicates(subset=["prev_close"])["on_high"].notna().sum())
+    months = sorted({d.strftime("%Y-%m") for d in sample})
+    ev_months = sorted({d.strftime("%Y-%m") for d in cal.days(tier=1)} & set(months))
+    if len(ev_months) < len(months):
+        out += (f"\n> **Calendar coverage warning:** `{base_cfg.context.event_file}` lists tier-1 events in only {len(ev_months)} of "
+                f"{len(months)} months of this sample. Event results are meaningless until the file covers the whole period.\n")
     out += (f"\n**Sample coverage.** {len(t1)} tier-1 event days fall inside this {len(sample)}-session sample. "
             f"Overnight range is available for {valid_on} sessions: the bundled CSV starts at 09:30 ET, so the overnight guard "
             "cannot be evaluated here. Download data with `--include-eth` and re-run.\n"

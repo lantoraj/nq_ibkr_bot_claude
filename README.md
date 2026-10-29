@@ -25,7 +25,7 @@ but with a realistic backtester, a statistical validation harness, and a live en
 | Contract | nearest unexpired contract | rolls 8 days before expiry |
 | Time zones | naive timestamps silently treated as UTC | naive timestamps rejected; IB bars requested as UTC |
 | Live safety | warning log only | `--confirm-live I-ACCEPT-REAL-MONEY-RISK` required |
-| Tests | 4 | 60 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context and entry-option tests) |
+| Tests | 4 | 65 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context and entry-option tests) |
 
 ## Layout
 
@@ -33,6 +33,7 @@ but with a realistic backtester, a statistical validation harness, and a live en
 config.py          all settings (strategy / risk / costs / backtest / execution)
 indicators.py      EMA, ATR, RSI, VWAP+z, Kalman velocity, variance-ratio Hurst, PDH/PDL, ORB, RTH filter
 strategy.py        signal engine (+ RandomEntryStrategy null benchmark)
+history.py          long-history download: per-contract, paced, rolled and back-adjusted
 trade_mgmt.py      StopManager: break-even + time-decay, shared by backtest and live
 context.py         opening gap + overnight (Globex) range per session
 events.py          economic-event calendar: entry blackout, flatten-before-event, skip tier-1 days
@@ -63,6 +64,31 @@ python main.py --mode download-history --duration "1 Y" --csv data/mnq_2m_1y.csv
 python main.py --mode paper --symbol MNQ                                          # paper port 7497
 python main.py --mode live  --symbol MNQ --confirm-live I-ACCEPT-REAL-MONEY-RISK
 ```
+
+## Testing on a longer data set (the single most useful next step)
+
+The bundled CSV is 66 sessions. The build environment could not reach a market-data source for more (the IBKR connector only
+returns "last N bars from now" and nothing for expired contracts), so this has to be run where TWS/Gateway is available:
+
+```bash
+# 1. TWS or IB Gateway running with the API enabled (paper account is fine). ~25 min for 2 years (IB pacing limits).
+python main.py --mode download-history --years 2 --include-eth --csv data/mnq_2m_2y.csv
+
+# 2. Fill data/economic_events.csv for the whole period (the event results are only valid where it has dates)
+
+# 3. Re-run everything on the long set (walk-forward windows scale automatically)
+python research.py --csv data/mnq_2m_2y.csv --out reports/research_2y.md
+```
+
+`--years N` downloads each quarterly contract separately in paced chunks, rolls on the same rule as the live bot
+(8 days before expiry) and **back-adjusts** the older contracts by the roll spread, so there are no fake roll gaps (the old
+`ContFuture` download injected them). Raw per-contract bars are cached in `data/cache/`, so an interrupted run resumes.
+`--include-eth` also keeps overnight bars, which enables the overnight-range guard. The pipeline is covered by offline
+tests but has not been run against a live TWS.
+
+What to look for in the long-run report: whether profit is still concentrated in a handful of days (section 11), whether
+the walk-forward result beats the fixed defaults, whether the VWAP z-band still earns its place (section 2), and whether the
+random-entry percentile (section 7) stays high.
 
 ## What the validation says (3-month MNQ sample, 1 contract)
 
