@@ -118,6 +118,11 @@ class RiskConfig:
     breakeven_at_1r: bool = True
     breakeven_offset_points: float = 1.0
 
+    # Trailing stop ("let winners run"): once price has moved trail_start_r * R in favour, keep the stop trail_r * R behind the
+    # best price since entry (never loosened). 0 = off. Combine with a far reward_risk_ratio to remove the fixed target.
+    trail_r: float = 0.0
+    trail_start_r: float = 1.5
+
     time_decay_bars: int = 6
     time_decay_stop_r: float = 0.50
 

@@ -2,7 +2,8 @@
 Open-trade stop management shared by the backtester and the live runner, so both apply
 exactly the same break-even / time-decay rules.
 
-Rules (evaluated once per CLOSED bar, effective from the next bar):
+Rules (evaluated once per CLOSED bar, effective from the next bar). Optional trailing stop: see RiskConfig.trail_r.
+
   1. Break-even: once the bar's extreme reaches entry +/- 1R, move the stop to
      entry +/- breakeven_offset_points.
   2. Time-decay: if +1R has not been reached after `time_decay_bars` bars since the FILL, tighten
@@ -27,6 +28,8 @@ class StopManager:
     tick_size: float = 0.25
     be_moved: bool = False
     decay_moved: bool = False
+    trail_moved: bool = False
+    best: Optional[float] = None      # most favourable price since entry
 
     @property
     def sign(self) -> int:
@@ -36,6 +39,7 @@ class StopManager:
         """Return (new_stop, kind) if the stop should be modified after this closed bar."""
         s = self.sign
         favorable = bar_high if s > 0 else bar_low
+        self.best = favorable if self.best is None else (max(self.best, favorable) if s > 0 else min(self.best, favorable))
 
         if self.cfg.breakeven_at_1r and not self.be_moved and s * (favorable - self.entry_price) >= self.one_r:
             new_sl = round_to_tick(self.entry_price + s * self.cfg.breakeven_offset_points, self.tick_size)
@@ -44,6 +48,13 @@ class StopManager:
                 self.be_moved = True
                 return new_sl, "breakeven"
             return None
+
+        if self.cfg.trail_r > 0 and s * (self.best - self.entry_price) >= self.cfg.trail_start_r * self.one_r:
+            new_sl = round_to_tick(self.best - s * self.cfg.trail_r * self.one_r, self.tick_size)
+            if s * (new_sl - self.stop_price) > 0:
+                self.stop_price = new_sl
+                self.trail_moved = True
+                return new_sl, "trail"
 
         if (
             self.cfg.time_decay_bars > 0
@@ -61,6 +72,8 @@ class StopManager:
         return None
 
     def exit_label(self) -> str:
+        if self.trail_moved:
+            return "Trailing Stop"
         if self.be_moved:
             return "Break-Even Stop"
         if self.decay_moved:

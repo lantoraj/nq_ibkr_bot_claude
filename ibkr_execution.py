@@ -87,6 +87,8 @@ class Bracket:
             "stop_price": self.mgr.stop_price if self.mgr else self.signal.stop_loss,
             "be_moved": self.mgr.be_moved if self.mgr else False,
             "decay_moved": self.mgr.decay_moved if self.mgr else False,
+            "trail_moved": self.mgr.trail_moved if self.mgr else False,
+            "best": self.mgr.best if self.mgr else None,
             "recovered": self.recovered, "realized_accum": self.realized_accum,
         }
 
@@ -523,7 +525,8 @@ class IBKRNQBotRunner:
             sl_live = next((t.order.auxPrice for t in br.trades if t.order.orderId == br.sl_id), sv["stop_price"])
             br.mgr = StopManager(sig.direction, br.fill_price, float(sl_live), sig.stop_distance_points,
                                  self.cfg.risk, self.cfg.contract.tick_size,
-                                 be_moved=bool(sv.get("be_moved")), decay_moved=bool(sv.get("decay_moved")))
+                                 be_moved=bool(sv.get("be_moved")), decay_moved=bool(sv.get("decay_moved")),
+                                 trail_moved=bool(sv.get("trail_moved")), best=sv.get("best"))
         self.active = br
         logger.warning("Recovered active bracket (%s, pos=%d, working=%d)", sig.direction, pos, len(working))
 

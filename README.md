@@ -55,7 +55,7 @@ test the overnight guard (the new data has overnight bars), measure real slippag
 | Contract | nearest unexpired contract | rolls 8 days before expiry |
 | Time zones | naive timestamps silently treated as UTC | naive timestamps rejected; IB bars requested as UTC |
 | Live safety | warning log only | `--confirm-live I-ACCEPT-REAL-MONEY-RISK` required |
-| Tests | 4 | 78 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context and entry-option tests) |
+| Tests | 4 | 83 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context and entry-option tests) |
 
 ## Layout
 
@@ -153,6 +153,21 @@ random-entry percentile (section 7) stays high.
 
 *Cumulative net PnL, drawdown and daily PnL for 1 MNQ over the 66-session sample (realistic fills vs the original optimistic
 assumptions). Interactive version: the HTML research report.*
+
+## Let-winners-run test (hold-out experiment, report section 13)
+
+Hypothesis: the profit comes from a few big trend days, but the fixed 3R target and early stop moves cap them. The test uses
+15 pre-declared variants (target 3/4/6/8/12 R x fixed target / 1R trail after +1.5R / 2R trail after +2R), picks the best on the
+FIRST half of the data only, and judges that single choice once on the SECOND half. Pass criteria (all required): test net > 0,
+profit factor >= 1.15, Sharpe >= 0.8, and better test net than the current default. Needs at least 250 sessions.
+
+```powershell
+git pull origin main
+python research.py --csv data\mnq_2m_2y.csv --sections winners --out reports\research_winners.md
+```
+
+New config: `risk.trail_r` and `risk.trail_start_r` (CLI `--trail-r`, `--trail-start-r`, `--reward-risk`). The trailing stop lives in the
+shared `StopManager`, so backtest and live behave the same. A FAIL means drop the idea; do not re-tune it on the same data.
 
 ## What the validation said on the first 66 sessions (superseded by the two-year results above)
 

@@ -565,10 +565,88 @@ def sec_deflated(lab: Lab) -> str:
     return out
 
 
+def sec_winners(lab: Lab, min_sessions: int = 250) -> str:
+    """
+    'Let winners run' hypothesis, tested with a strict hold-out: pick the exit settings on the FIRST half of the data only,
+    then judge that single choice on the SECOND half. The rules and pass criteria below are fixed before any result is seen.
+    """
+    dates = lab.dates()
+    out = "## 13. Let-winners-run test (hold-out design)\n\n"
+    if len(dates) < min_sessions:
+        return out + f"_Skipped: needs at least {min_sessions} sessions for a train/test split; this sample has {len(dates)}._\n"
+    split = dates[len(dates) // 2]
+
+    rr_list = [3.0, 4.0, 6.0, 8.0, 12.0]
+    trails = [(0.0, 0.0, "fixed target"), (1.0, 1.5, "trail 1R after +1.5R"), (2.0, 2.0, "trail 2R after +2R")]
+    variants = []
+    for rr in rr_list:
+        for tr, st, nm in trails:
+            variants.append((f"{rr:g}R target, {nm}", rr, tr, st))
+    n_var = len(variants)
+
+    out += ("**Hypothesis.** Profit comes from a few large trend days, but a fixed 3R target and early stop moves cap the big winners. "
+            "A farther target and/or a trailing stop should capture more of them.\n\n"
+            f"**Design.** {n_var} pre-declared variants (target 3/4/6/8/12 R x fixed target / 1R trail after +1.5R / 2R trail after +2R). "
+            f"Settings are chosen on the first half (sessions before {split}) by `net - 0.5 x max drawdown`, requiring at least 80 trades; "
+            "only the chosen variant is judged on the second half. The full test-half table is shown for transparency, "
+            "but it is NOT used for selection.\n\n"
+            "**Pass criteria (all required, on the second half):** net profit > 0; profit factor >= 1.15; annualised Sharpe >= 0.8; "
+            "and better net profit than the current default (3R fixed target).\n\n")
+
+    rows, trains, tests, default_idx = [], [], [], 0
+    results = []
+    for k, (name, rr, tr, st) in enumerate(variants):
+        cfg = lab.cfg(lambda c, rr=rr: setattr(c.risk, "reward_risk_ratio", rr), lambda c, tr=tr: setattr(c.risk, "trail_r", tr),
+                      lambda c, st=st: setattr(c.risk, "trail_start_r", st if st else 1.5))
+        a = lab.run(cfg, end=str(split))
+        b = lab.run(cfg, start=str(split))
+        results.append((name, a, b))
+        if rr == 3.0 and tr == 0.0:
+            default_idx = k
+    def obj(m):
+        return m["net_pnl_usd"] - 0.5 * m["max_drawdown_usd"] if m["total_trades"] >= 80 else -1e12
+    for name, a, b in results:
+        ma, mb = a["metrics"], b["metrics"]
+        trains.append(ma["net_pnl_usd"]); tests.append(mb["net_pnl_usd"])
+        rows.append({"variant": name, "train objective": round(obj(ma), 0), "train net $": ma["net_pnl_usd"], "train PF": ma["profit_factor"],
+                     "train max DD $": ma["max_drawdown_usd"], "test net $": mb["net_pnl_usd"], "test PF": mb["profit_factor"],
+                     "test max DD $": mb["max_drawdown_usd"], "test Sharpe": mb["sharpe_daily_ann"], "test trades": mb["total_trades"]})
+    pick = max(range(n_var), key=lambda i: obj(results[i][1]["metrics"]))
+    out += "**A. All variants (sorted by training objective)**\n\n" + md_table(sorted(rows, key=lambda r: -r["train objective"]))
+
+    pm, dm = results[pick][2]["metrics"], results[default_idx][2]["metrics"]
+    checks = [("test net > 0", pm["net_pnl_usd"] > 0), ("test PF >= 1.15", pm["profit_factor"] >= 1.15),
+              ("test Sharpe >= 0.8", pm["sharpe_daily_ann"] >= 0.8), ("beats the 3R default on test net", pm["net_pnl_usd"] > dm["net_pnl_usd"])]
+    passed = all(ok for _, ok in checks)
+    out += "\n**B. The verdict: variant chosen on the first half, judged on the second**\n\n"
+    out += md_table([
+        {"": "chosen on training data", "variant": results[pick][0], "test net $": pm["net_pnl_usd"], "test PF": pm["profit_factor"],
+         "test max DD $": pm["max_drawdown_usd"], "test Sharpe": pm["sharpe_daily_ann"], "test trades": pm["total_trades"]},
+        {"": "current default", "variant": results[default_idx][0], "test net $": dm["net_pnl_usd"], "test PF": dm["profit_factor"],
+         "test max DD $": dm["max_drawdown_usd"], "test Sharpe": dm["sharpe_daily_ann"], "test trades": dm["total_trades"]}])
+    out += "\n" + md_table([{"criterion": c, "result": "PASS" if ok else "FAIL"} for c, ok in checks])
+    out += f"\n**Overall: {'PASS' if passed else 'FAIL'}.**\n"
+
+    ranks = pd.Series(trains).rank().corr(pd.Series(tests).rank())
+    tsh = [r[2]["metrics"]["sharpe_daily_ann"] / math.sqrt(252) for r in results]
+    ts = results[pick][2]
+    d = daily_pnl(ts["trades"], ts["trading_days"]); mo = sharpe_moments(d)
+    var_sr = float(np.var(tsh, ddof=1)) if len(tsh) > 1 else 0.0
+    out += ("\n**C. Does training performance predict test performance?** Rank correlation of net PnL between halves across the %d variants: "
+            "**%+.2f**. Near zero means selecting on the first half tells you little about the second; clearly positive means the "
+            "effect is stable.\n" % (n_var, ranks))
+    out += ("\n**D. Statistical weight of the chosen variant on the test half:** PSR vs 0 = %.2f; deflated Sharpe for %d trials = %.2f "
+            "(0.95 would be convincing).\n" % (psr(mo["sr"], mo["n"], mo["skew"], mo["kurt"]), n_var,
+                                               deflated_sr(mo["sr"], mo["n"], mo["skew"], mo["kurt"], n_var, var_sr)))
+    out += ("\nA PASS is necessary, not sufficient: it would still need forward (paper) testing. A FAIL means this hypothesis does not "
+            "rescue the strategy, and it should be dropped rather than re-tuned on the same data.\n")
+    return out
+
+
 SECTIONS = {
     "baseline": sec_baseline, "ablation": sec_ablation, "stress": sec_stress, "sensitivity": sec_sensitivity,
     "split": sec_split, "walkforward": sec_walkforward, "random": sec_random, "bootstrap": sec_bootstrap,
-    "context": sec_context, "entry": sec_entry, "eventdays": sec_eventdays, "deflated": sec_deflated,
+    "context": sec_context, "entry": sec_entry, "eventdays": sec_eventdays, "deflated": sec_deflated, "winners": sec_winners,
 }
 
 

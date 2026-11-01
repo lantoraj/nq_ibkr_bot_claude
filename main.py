@@ -49,6 +49,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--structural-stop", action="store_true", help="stop beyond recent swing instead of ATR multiple")
     p.add_argument("--max-extension-atr", type=float, default=0.0, help="skip signals further than this from the fast EMA (0=off)")
     p.add_argument("--minutes", type=float, default=0.0, help="record-ticks: stop after N minutes (0 = until Ctrl+C)")
+    p.add_argument("--reward-risk", type=float, default=3.0, help="take-profit distance in R (use a large value to remove the target)")
+    p.add_argument("--trail-r", type=float, default=0.0, help="trailing stop distance in R behind the best price (0 = off)")
+    p.add_argument("--trail-start-r", type=float, default=1.5, help="start trailing after this many R in favour")
     p.add_argument("--state-file", default="state/bot_state.json")
     p.add_argument("--confirm-live", default="", help=f"must equal {LIVE_CONFIRMATION} to trade a live account")
     return p.parse_args(argv)
@@ -68,6 +71,9 @@ def build_config(args: argparse.Namespace) -> BotConfig:
     cfg.execution.state_file = args.state_file
     cfg.context.use_event_filter = args.event_filter
     cfg.entry.execution_style = args.entry_style
+    cfg.risk.reward_risk_ratio = args.reward_risk
+    cfg.risk.trail_r = args.trail_r
+    cfg.risk.trail_start_r = args.trail_start_r
     cfg.entry.retrace_atr = args.retrace_atr
     cfg.entry.confirm_bars = 1 if args.confirm_bar else 0
     cfg.entry.max_extension_atr = args.max_extension_atr
