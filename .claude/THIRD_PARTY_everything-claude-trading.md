@@ -1,7 +1,9 @@
 # Third-party content: everything-claude-trading
 
 Source: https://github.com/brainbytes-dev/everything-claude-trading (commit 9a8fcfc, v1.0.0), MIT licensed.
-Copied into `.claude/skills`, `.claude/agents` and `.claude/commands`.
+Copied into `.claude/skills`, `.claude/agents` and `.claude/commands`, then pruned: only 29 of the 82 upstream skills were kept
+(backtesting rigor, data, execution/microstructure, risk/sizing, the strategy families used here). Deleted: crypto (8), derivatives (10),
+portfolio (7), most of macro, and other skills unrelated to a single-instrument intraday futures bot. Agents and commands were not pruned.
 
 Changes made here:
 * Each skill got a YAML header (`name`, `description`) generated from its own title and "When to Activate" bullets,
