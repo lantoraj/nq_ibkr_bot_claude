@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import copy
 import itertools
+import math
 import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
@@ -28,6 +29,8 @@ import pandas as pd
 from backtest import Backtester
 from config import BotConfig
 from metrics import bootstrap, compute_metrics
+from stats_tests import (EULER, daily_pnl, deflated_sr, expected_max_sr, max_trials_supported, min_backtest_years,
+                         min_track_record_length, psr, sharpe_moments)
 from strategy import RandomEntryStrategy
 
 KEY_COLS = ["total_trades", "win_rate_pct", "scratch_pct", "win_rate_ex_scratch_pct", "net_pnl_usd", "profit_factor", "max_drawdown_usd",
@@ -51,6 +54,7 @@ class Lab:
         self.raw = pd.read_csv(csv)
         self.base = base or BotConfig()
         self._enriched: Dict[tuple, pd.DataFrame] = {}
+        self.trials: Dict[str, pd.Series] = {}      # distinct full-sample configs evaluated -> daily PnL (for deflated Sharpe)
 
     def enriched(self, cfg: BotConfig) -> pd.DataFrame:
         s = cfg.strategy
@@ -69,7 +73,10 @@ class Lab:
 
     def run(self, cfg: BotConfig, start: Optional[str] = None, end: Optional[str] = None,
             strategy=None) -> Dict:
-        return Backtester(cfg, strategy=strategy).run(enriched=self.enriched(cfg), start=start, end=end)
+        res = Backtester(cfg, strategy=strategy).run(enriched=self.enriched(cfg), start=start, end=end)
+        if start is None and end is None and strategy is None:
+            self.trials.setdefault(repr(cfg), daily_pnl(res["trades"], res["trading_days"]))
+        return res
 
     def dates(self) -> List:
         e = self.enriched(self.base)
@@ -485,10 +492,75 @@ def sec_eventdays(lab: Lab) -> str:
     return out
 
 
+def sec_deflated(lab: Lab) -> str:
+    """Deflated Sharpe and minimum backtest length, using the trials this harness has actually run."""
+    if len(lab.trials) < 25:                      # run the other families quietly so the trial count is real
+        for fn in (sec_baseline, sec_ablation, sec_stress, sec_sensitivity, sec_context, sec_entry):
+            fn(lab)
+    cfg = lab.cfg()
+    default = lab.run(cfg)
+    d_series = daily_pnl(default["trades"], default["trading_days"])
+    mo = sharpe_moments(d_series)
+    ann = math.sqrt(252)
+    sr_ann = mo["sr"] * ann
+    years = mo["n"] / 252
+
+    srs = np.array([sharpe_moments(s)["sr"] for s in lab.trials.values()])
+    n_counted = len(srs)
+    var_sr = float(np.var(srs, ddof=1))
+    best_key = max(lab.trials, key=lambda k: sharpe_moments(lab.trials[k])["sr"])
+    bm = sharpe_moments(lab.trials[best_key])
+
+    out = "## 12. Deflated Sharpe ratio and minimum backtest length\n\n"
+    out += ("Sharpe ratios on **daily PnL** over %d sessions (%.2f years). A Sharpe found after trying many variants is inflated "
+            "by selection; these statistics measure by how much.\n\n" % (mo["n"], years))
+    out += "**A. The default configuration**\n\n" + md_table([{
+        "annualised Sharpe": round(sr_ann, 2), "daily skew": round(mo["skew"], 2), "daily kurtosis": round(mo["kurt"], 1),
+        "PSR vs 0 (P true Sharpe > 0)": round(psr(mo["sr"], mo["n"], mo["skew"], mo["kurt"]), 3),
+        "days needed for 95% confidence (MinTRL)": (round(min_track_record_length(mo["sr"], mo["skew"], mo["kurt"]))
+                                                    if mo["sr"] > 0 else "never"),
+        "days available": mo["n"]}])
+
+    out += ("\n**B. How many variants have been tried?** This report evaluated **%d distinct full-sample configurations** "
+            "(ablations, cost stress, sensitivity grids, context filters, entry options). Their daily Sharpe ratios have a "
+            "cross-trial standard deviation of %.3f per day (%.2f annualised); the best of them reaches an annualised Sharpe of %.2f.\n"
+            % (n_counted, math.sqrt(var_sr), math.sqrt(var_sr) * ann, bm["sr"] * ann))
+
+    rows = []
+    for n_tr in sorted({1, 5, 10, 25, 50, n_counted, 250, 500, 1000}):
+        sr0 = expected_max_sr(n_tr, var_sr)
+        rows.append({"assumed independent trials N": n_tr + 0, "expected best Sharpe by luck (annualised)": round(sr0 * ann, 2),
+                     "DSR of default (P its Sharpe is real)": round(deflated_sr(mo["sr"], mo["n"], mo["skew"], mo["kurt"], n_tr, var_sr), 3),
+                     "DSR of best-found variant": round(deflated_sr(bm["sr"], bm["n"], bm["skew"], bm["kurt"], n_tr, var_sr), 3)})
+    out += "\n**C. Deflated Sharpe ratio by number of trials** (above 0.95 = statistically convincing)\n\n" + md_table(rows)
+
+    rows = []
+    for tgt in sorted({round(sr_ann, 2), 1.0, 1.5, 2.0}):
+        row = {"target annualised Sharpe": tgt}
+        for n_tr in (1, 10, 50, n_counted, 500):
+            row[f"N={n_tr}: years needed"] = "n/a (no selection)" if n_tr == 1 else round(min_backtest_years(n_tr, tgt), 2)
+        row["max N this history supports"] = max_trials_supported(years, tgt)
+        rows.append(row)
+    out += ("\n**D. Minimum backtest length** (years of data before the best of N zero-edge trials is not expected to reach "
+            "the target Sharpe by chance)\n\n" + md_table(rows))
+
+    sr0_counted = expected_max_sr(n_counted, var_sr)
+    verdict = deflated_sr(mo["sr"], mo["n"], mo["skew"], mo["kurt"], n_counted, var_sr)
+    need = min_track_record_length(mo["sr"], mo["skew"], mo["kurt"], sr_bench=sr0_counted)
+    out += ("\n**Reading this.** With %d variants tried, luck alone is expected to produce an annualised Sharpe of about %.2f; the default's "
+            "is %.2f, so its deflated Sharpe is %.2f (%s). %s The count N is a lower bound on the real number of decisions "
+            "behind the defaults (the original author's v0-v4 tuning is not counted), and variants that differ slightly are "
+            "correlated, which pulls the effective N down; treat the DSR as a guide, not a p-value.\n"
+            % (n_counted, sr0_counted * ann, sr_ann, verdict, "convincing" if verdict > 0.95 else "not convincing",
+               ("Beating that luck threshold with 95%% confidence would take about %d trading days (%.1f years) of data at this Sharpe."
+                % (need, need / 252)) if math.isfinite(need) else "At this Sharpe the luck threshold is never beaten."))
+    return out
+
+
 SECTIONS = {
     "baseline": sec_baseline, "ablation": sec_ablation, "stress": sec_stress, "sensitivity": sec_sensitivity,
     "split": sec_split, "walkforward": sec_walkforward, "random": sec_random, "bootstrap": sec_bootstrap,
-    "context": sec_context, "entry": sec_entry, "eventdays": sec_eventdays,
+    "context": sec_context, "entry": sec_entry, "eventdays": sec_eventdays, "deflated": sec_deflated,
 }
 
 

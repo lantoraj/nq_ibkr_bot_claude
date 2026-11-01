@@ -25,7 +25,7 @@ but with a realistic backtester, a statistical validation harness, and a live en
 | Contract | nearest unexpired contract | rolls 8 days before expiry |
 | Time zones | naive timestamps silently treated as UTC | naive timestamps rejected; IB bars requested as UTC |
 | Live safety | warning log only | `--confirm-live I-ACCEPT-REAL-MONEY-RISK` required |
-| Tests | 4 | 71 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context and entry-option tests) |
+| Tests | 4 | 78 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context and entry-option tests) |
 
 ## Layout
 
@@ -36,6 +36,7 @@ strategy.py        signal engine (+ RandomEntryStrategy null benchmark)
 scalp_lab.py        bar-level scalp-signal event study (multiple-testing aware)
 microstructure.py  tick features (queue imbalance, OFI, microprice, trade flow) + net-of-cost study
 tick_recorder.py   record top-of-book quotes/trades to CSV; tick_lab.py runs the study
+stats_tests.py     probabilistic/deflated Sharpe, minimum track record and backtest length
 history.py          long-history download: per-contract, paced, rolled and back-adjusted
 trade_mgmt.py      StopManager: break-even + time-decay, shared by backtest and live
 context.py         opening gap + overnight (Globex) range per session
@@ -161,6 +162,23 @@ Findings on the 3-month sample (`reports/research_report.md`, section 9):
   build environment. FOMC dates matched across sources; CPI dates are from secondary sites and marked UNVERIFIED. Confirm them
   and extend the file (it only protects against events it lists; the live runner warns when it is stale).
 * The CSV is an unadjusted continuous contract; gaps near the September roll include calendar spread.
+
+## Deflated Sharpe and minimum backtest length (report section 12)
+
+`stats_tests.py` implements the Bailey & Lopez de Prado statistics; `research.py` counts the variants it actually evaluates
+(90 distinct configurations) and uses their Sharpe spread to deflate the default's Sharpe.
+
+* Default (realistic fills): annualised Sharpe **2.72** over 66 days, PSR 0.94, so even before deflation it falls just short of
+  95% confidence (77 days are needed, 66 are available).
+* After 90 trials, luck alone is expected to produce an annualised Sharpe of **2.81**, which is above the strategy's 2.72.
+  **Deflated Sharpe = 0.48** (0.95 would be convincing). The tests cannot distinguish the strategy from the best of many random ones.
+* 66 days (0.26 years) supports **at most about 7 independent trials** at a Sharpe of 2.7. Ten trials already need 0.34 years,
+  fifty need 0.7 years, ninety need 0.84 years, and a Sharpe near 1.5 would need about 2.8 years.
+* `tests/test_stats.py` includes a calibration check: the best of 200 random strategies looks significant in >80% of runs
+  without deflation, in <15% with it.
+* N is a lower bound (the baseline author's v0-v4 tuning is not counted) and correlated variants lower the effective N, so read
+  the DSR as a guide, not a p-value. The practical conclusion is simple: this sample is too short to validate a strategy with
+  this many degrees of freedom; more data, not more tuning, is what helps.
 
 ## Profit concentration (report section 11)
 

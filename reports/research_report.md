@@ -231,3 +231,40 @@ Of the 8 best days, 2 are tier-1 event days.
 Four features tested on 66 days: a correlation near 0.2 is within chance here, so only a strong, monotonic pattern (low < mid < high) would be worth following up.
 
 8 days and 14 trades are a very small sample. Read this as a map of where the risk of being wrong is, not as a verdict.
+
+## 12. Deflated Sharpe ratio and minimum backtest length
+
+Sharpe ratios on **daily PnL** over 66 sessions (0.26 years). A Sharpe found after trying many variants is inflated by selection; these statistics measure by how much.
+
+**A. The default configuration**
+
+| annualised Sharpe | daily skew | daily kurtosis | PSR vs 0 (P true Sharpe > 0) | days needed for 95% confidence (MinTRL) | days available |
+|---|---|---|---|---|---|
+| 2.72 | 1.11 | 3.6 | 0.935 | 77 | 66 |
+
+**B. How many variants have been tried?** This report evaluated **90 distinct full-sample configurations** (ablations, cost stress, sensitivity grids, context filters, entry options). Their daily Sharpe ratios have a cross-trial standard deviation of 0.071 per day (1.13 annualised); the best of them reaches an annualised Sharpe of 4.36.
+
+**C. Deflated Sharpe ratio by number of trials** (above 0.95 = statistically convincing)
+
+| assumed independent trials N | expected best Sharpe by luck (annualised) | DSR of default (P its Sharpe is real) | DSR of best-found variant |
+|---|---|---|---|
+| 1 | 0.0 | 0.935 | 0.994 |
+| 5 | 1.35 | 0.778 | 0.958 |
+| 10 | 1.78 | 0.701 | 0.931 |
+| 25 | 2.25 | 0.603 | 0.887 |
+| 50 | 2.57 | 0.534 | 0.848 |
+| 90 | 2.81 | 0.48 | 0.813 |
+| 250 | 3.2 | 0.394 | 0.747 |
+| 500 | 3.44 | 0.343 | 0.7 |
+| 1000 | 3.67 | 0.298 | 0.653 |
+
+**D. Minimum backtest length** (years of data before the best of N zero-edge trials is not expected to reach the target Sharpe by chance)
+
+| target annualised Sharpe | N=1: years needed | N=10: years needed | N=50: years needed | N=90: years needed | N=500: years needed | max N this history supports |
+|---|---|---|---|---|---|---|
+| 1.0 | n/a (no selection) | 2.48 | 5.18 | 6.22 | 9.32 | 1 |
+| 1.5 | n/a (no selection) | 1.1 | 2.3 | 2.76 | 4.14 | 2 |
+| 2.0 | n/a (no selection) | 0.62 | 1.3 | 1.55 | 2.33 | 3 |
+| 2.72 | n/a (no selection) | 0.34 | 0.7 | 0.84 | 1.26 | 7 |
+
+**Reading this.** With 90 variants tried, luck alone is expected to produce an annualised Sharpe of about 2.81; the default's is 2.72, so its deflated Sharpe is 0.48 (not convincing). At this Sharpe the luck threshold is never beaten. The count N is a lower bound on the real number of decisions behind the defaults (the original author's v0-v4 tuning is not counted), and variants that differ slightly are correlated, which pulls the effective N down; treat the DSR as a guide, not a p-value.
