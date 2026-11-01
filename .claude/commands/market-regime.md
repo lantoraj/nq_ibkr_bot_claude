@@ -95,4 +95,3 @@ Current period most similar to:
 - **quant-researcher** — Primary agent, runs regime detection models
 - **algo-strategist** — Adjusts strategy parameters for detected regime
 - **risk-manager** — Monitors regime-related risk and sets hedging triggers
-- **volatility-trader** — Provides vol regime context and vol surface signals

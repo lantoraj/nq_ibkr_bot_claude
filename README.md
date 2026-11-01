@@ -200,7 +200,7 @@ structural stop and a 0.10 ATR retrace, and both gains are inside the sample's n
 ## Claude Code trading toolkit (`.claude/`)
 
 Installed from [everything-claude-trading](https://github.com/brainbytes-dev/everything-claude-trading) (MIT, commit 9a8fcfc):
-29 skills (pruned from 82), 18 agents and 20 slash commands (`/backtest`, `/signal-research`, `/position-size`, `/execution-plan`, ...). They load
+29 skills, 9 agents and 9 slash commands, pruned from 82/18/20 to what an intraday futures bot needs (`/backtest`, `/signal-research`, `/position-size`, `/stress-test`, `/trade-review`, `/market-regime`, `/alpha-decay`, `/data-pipeline`, `/strategy`). They load
 automatically when Claude Code is opened in this repo. See `.claude/THIRD_PARTY_everything-claude-trading.md` for what was
 changed (generated skill headers) and what was deliberately left out (the keyword-warning hooks and the MCP server template).
 Most useful for this bot: `overfitting-prevention`, `walk-forward-optimization`, `monte-carlo-simulation`,

@@ -109,5 +109,4 @@ Rationale:
 
 - **risk-manager** — Primary agent, validates sizing against risk limits
 - **algo-strategist** — Provides signal conviction for Kelly inputs
-- **portfolio-manager** — Evaluates marginal portfolio impact
 - **execution-specialist** — Plans execution for the sized order

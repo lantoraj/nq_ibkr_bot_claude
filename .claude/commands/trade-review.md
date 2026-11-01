@@ -99,4 +99,3 @@ equity long-short strategy
 - **backtesting-engineer** — Co-leads, provides quantitative performance analysis
 - **risk-manager** — Co-leads, reviews risk metric compliance
 - **execution-specialist** — Provides TCA analysis and execution quality metrics
-- **portfolio-manager** — Reviews allocation drift and rebalancing effectiveness

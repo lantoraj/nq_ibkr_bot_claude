@@ -81,6 +81,3 @@ Runs comprehensive stress tests on a portfolio using historical crisis scenarios
 ## Related Agents
 
 - **risk-manager** — Primary agent, designs and runs stress scenarios
-- **derivatives-analyst** — Computes stress Greeks for options positions
-- **portfolio-manager** — Implements portfolio adjustments based on findings
-- **fixed-income-analyst** — Models rate and credit stress scenarios
