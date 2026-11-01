@@ -25,7 +25,7 @@ LIVE_CONFIRMATION = "I-ACCEPT-REAL-MONEY-RISK"
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="NQ / MNQ intraday futures bot (IBKR)")
-    p.add_argument("--mode", choices=["backtest", "paper", "live", "download-history"], default="backtest")
+    p.add_argument("--mode", choices=["backtest", "paper", "live", "download-history", "record-ticks"], default="backtest")
     p.add_argument("--symbol", choices=["NQ", "MNQ"], default="MNQ")
     p.add_argument("--contract-month", default="", help="e.g. 202612; empty = auto-select with roll rule")
     p.add_argument("--bar-size", choices=["1 min", "2 mins", "5 mins"], default="2 mins")
@@ -48,6 +48,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--confirm-bar", action="store_true", help="require the bar after the signal to confirm")
     p.add_argument("--structural-stop", action="store_true", help="stop beyond recent swing instead of ATR multiple")
     p.add_argument("--max-extension-atr", type=float, default=0.0, help="skip signals further than this from the fast EMA (0=off)")
+    p.add_argument("--minutes", type=float, default=0.0, help="record-ticks: stop after N minutes (0 = until Ctrl+C)")
     p.add_argument("--state-file", default="state/bot_state.json")
     p.add_argument("--confirm-live", default="", help=f"must equal {LIVE_CONFIRMATION} to trade a live account")
     return p.parse_args(argv)
@@ -110,6 +111,12 @@ def main(argv=None) -> int:
         return 0
 
     from ibkr_execution import IBKRNQBotRunner
+
+    if args.mode == "record-ticks":
+        import asyncio
+        from tick_recorder import record_ticks
+        asyncio.run(record_ticks(IBKRNQBotRunner(cfg, mode="paper"), minutes=args.minutes))
+        return 0
 
     if args.mode == "download-history":
         out = args.csv or f"data/{cfg.contract.symbol.lower()}_history.csv"

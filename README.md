@@ -25,7 +25,7 @@ but with a realistic backtester, a statistical validation harness, and a live en
 | Contract | nearest unexpired contract | rolls 8 days before expiry |
 | Time zones | naive timestamps silently treated as UTC | naive timestamps rejected; IB bars requested as UTC |
 | Live safety | warning log only | `--confirm-live I-ACCEPT-REAL-MONEY-RISK` required |
-| Tests | 4 | 65 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context and entry-option tests) |
+| Tests | 4 | 71 (baseline-parity golden test, lookahead audit, backtest mechanics, fake-IB execution tests, market-context and entry-option tests) |
 
 ## Layout
 
@@ -33,6 +33,9 @@ but with a realistic backtester, a statistical validation harness, and a live en
 config.py          all settings (strategy / risk / costs / backtest / execution)
 indicators.py      EMA, ATR, RSI, VWAP+z, Kalman velocity, variance-ratio Hurst, PDH/PDL, ORB, RTH filter
 strategy.py        signal engine (+ RandomEntryStrategy null benchmark)
+scalp_lab.py        bar-level scalp-signal event study (multiple-testing aware)
+microstructure.py  tick features (queue imbalance, OFI, microprice, trade flow) + net-of-cost study
+tick_recorder.py   record top-of-book quotes/trades to CSV; tick_lab.py runs the study
 history.py          long-history download: per-contract, paced, rolled and back-adjusted
 trade_mgmt.py      StopManager: break-even + time-decay, shared by backtest and live
 context.py         opening gap + overnight (Globex) range per session
@@ -64,6 +67,31 @@ python main.py --mode download-history --duration "1 Y" --csv data/mnq_2m_1y.csv
 python main.py --mode paper --symbol MNQ                                          # paper port 7497
 python main.py --mode live  --symbol MNQ --confirm-live I-ACCEPT-REAL-MONEY-RISK
 ```
+
+## Scalping: what the data says, and the path to a real answer
+
+`python scalp_lab.py` runs an event study on 2-minute bars (report: `reports/scalp_report.md`). 170 signal variants
+(VWAP z, EMA distance, RSI(2), IBS, Bollinger, 3-bar momentum, volume spikes, opening-range breaks), each followed and
+faded, held 2-12 minutes, entry at the next bar open, net of costs.
+
+* **No bar-level scalp edge.** 1 variant has a positive net edge at t > 2 (about 4 expected by chance); none pass a
+  multiple-testing bar and a both-halves check. Lag-1 autocorrelation of 2-minute returns is 0.01.
+* **Costs decide it.** A round trip costs about 1.12 pts on MNQ ($2.24) but 0.71 pts on NQ ($14.20). Per point of
+  movement NQ is ~37% cheaper to trade, so any scalping idea should be tested with NQ costs.
+* The lab itself is validated (`tests/test_labs.py`): a random walk yields no findings, a planted reversal effect is found.
+
+A true scalper (seconds-to-minutes holds) needs data this repo did not have, so the tools to get it now exist:
+
+```bash
+python main.py --mode record-ticks --minutes 390     # during the session; top-of-book quotes + trades to data/ticks/
+python tick_lab.py --quotes "data/ticks/MNQ_quotes_*.csv" --trades "data/ticks/MNQ_trades_*.csv"
+```
+
+`microstructure.py` computes queue imbalance, microprice deviation, order-flow imbalance (Cont-Kukanov-Stoikov) and signed
+trade-flow imbalance on a 1-second grid, then evaluates each as a signal net of crossing the spread twice plus commission.
+Record at least 2-4 weeks before drawing conclusions. Limits to keep in mind: the IB API adds tens to hundreds of ms of
+latency, so only effects that last several seconds are reachable from this stack; passive (limit-order) scalping needs a queue
+model and is not simulated here; there is NO live scalping mode, because nothing tested so far justifies one.
 
 ## Testing on a longer data set (the single most useful next step)
 
