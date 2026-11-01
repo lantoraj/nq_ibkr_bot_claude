@@ -119,6 +119,11 @@ What to look for in the long-run report: whether profit is still concentrated in
 the walk-forward result beats the fixed defaults, whether the VWAP z-band still earns its place (section 2), and whether the
 random-entry percentile (section 7) stays high.
 
+![PnL curve](reports/pnl_curve.png)
+
+*Cumulative net PnL, drawdown and daily PnL for 1 MNQ over the 66-session sample (realistic fills vs the original optimistic
+assumptions). Interactive version: the HTML research report.*
+
 ## What the validation says (3-month MNQ sample, 1 contract)
 
 Full tables: [`reports/research_report.md`](reports/research_report.md).
