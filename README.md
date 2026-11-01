@@ -197,6 +197,16 @@ structural stop and a 0.10 ATR retrace, and both gains are inside the sample's n
 4. Decide on removing the confidence gate / simplifying parameters based on the longer sample.
 5. `server_side_breakeven` (IB adjusted stop, survives bot death) is implemented but **untested against a live IB**; try on paper first.
 
+## Claude Code trading toolkit (`.claude/`)
+
+Installed from [everything-claude-trading](https://github.com/brainbytes-dev/everything-claude-trading) (MIT, commit 9a8fcfc):
+82 skills, 18 agents and 20 slash commands (`/backtest`, `/signal-research`, `/position-size`, `/execution-plan`, ...). They load
+automatically when Claude Code is opened in this repo. See `.claude/THIRD_PARTY_everything-claude-trading.md` for what was
+changed (generated skill headers) and what was deliberately left out (the keyword-warning hooks and the MCP server template).
+Most useful for this bot: `overfitting-prevention`, `walk-forward-optimization`, `monte-carlo-simulation`,
+`transaction-cost-analysis`, `order-flow-analysis`, `tick-data-processing`, `position-sizing`, `regime-detection`. About 50 of
+the skills (crypto, derivatives pricing, macro, portfolio allocation) are unrelated to this bot and only add context.
+
 ## Known limits
 
 * The execution layer is tested against a fake IB, not a real TWS/Gateway. Expect to shake out issues on paper.
