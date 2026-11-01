@@ -3,8 +3,33 @@
 Hardened rework of [`lantoraj/nq_ibkr_bot`](https://github.com/lantoraj/nq_ibkr_bot): same intraday MNQ/NQ strategy,
 but with a realistic backtester, a statistical validation harness, and a live engine whose failure modes were fixed.
 
-> **Status: research / paper-trading only.** 111 trades over 66 sessions in one market regime cannot establish an edge.
-> Run it on a paper account for weeks and extend the data set (see "Next steps") before risking money.
+> **Status: research only; not validated for live trading.** On two years of data (517 sessions) the default strategy nets
+> +$1,538 on 1 MNQ (profit factor 1.05, Sharpe 0.36, deflated Sharpe 0.20). The strong results from the first 66 sessions
+> below do **not** hold up. Full results: [`reports/research_2y.md`](reports/research_2y.md).
+
+## Two-year validation (supersedes the 66-session results further down)
+
+Data: back-adjusted per-contract 2-minute MNQ bars, 2024-10-29 to 2026-10-30, produced by `download-history --years 2 --include-eth`.
+
+| | 66 sessions | 517 sessions |
+|---|---|---|
+| Net PnL, 1 MNQ | +$1,789 | **+$1,538** (about $750 a year) |
+| Profit factor / Sharpe | 1.52 / 2.72 | **1.05 / 0.36** |
+| Max drawdown | $704 | $1,870 |
+| README-era optimistic fills | +$2,927 | +$181 |
+
+* The 66 sessions were the best stretch: outside them the strategy roughly broke even. First year -$673, second year +$2,211.
+* Only 13 of 25 months profitable; top 3 days = 93% of net profit; without the best 5 days the strategy loses $845.
+* Costs matter: +$402 at double commission, -$1,055 with 3-tick stop slippage, 2 ticks worse entries and double commission.
+* Tuning does not generalise: walk-forward re-optimisation made +$854 vs +$1,624 for the fixed defaults.
+* Several components hurt: removing the confidence gate, the PDH/PDL guard or the time-decay stop each raises net profit;
+  pullback-only entries make +$3,500 (PF 1.13, 15/25 months) but are the best of ~90 variants tried, so they need forward testing.
+* Still beats random entries (97th percentile, random p95 +$730), but deflated Sharpe is 0.20: luck alone is expected to give 0.95.
+* The event calendar covers only 4 of 25 months, so the event-day and context results are unreliable until it is extended.
+* Entry-option findings flipped sign versus the 66-session sample, which indicates noise; none are adopted.
+
+Interactive report: the "MNQ Two-Year Validation" HTML page. Next: simplify and freeze the rules, extend the event calendar,
+test the overnight guard (the new data has overnight bars), measure real slippage on paper, and test forward on unseen data.
 
 ## What changed vs the baseline
 
@@ -124,7 +149,7 @@ random-entry percentile (section 7) stays high.
 *Cumulative net PnL, drawdown and daily PnL for 1 MNQ over the 66-session sample (realistic fills vs the original optimistic
 assumptions). Interactive version: the HTML research report.*
 
-## What the validation says (3-month MNQ sample, 1 contract)
+## What the validation said on the first 66 sessions (superseded by the two-year results above)
 
 Full tables: [`reports/research_report.md`](reports/research_report.md).
 

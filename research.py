@@ -226,7 +226,7 @@ def sec_walkforward(lab: Lab, train_days: Optional[int] = None, test_days: Optio
     out += md_table(fold_rows)
     out += "\n" + md_table([_row("walk-forward OOS (re-optimised each fold)", agg),
                             _row("fixed default on the same test windows", aggf)])
-    out += "\nOnly a few short test windows exist in a 3-month sample; indicative, not conclusive.\n"
+    out += f"\n{len(fold_rows)} test windows of {test_days} sessions each; indicative, not conclusive.\n"
     return out
 
 
@@ -275,6 +275,9 @@ def sec_context(lab: Lab) -> str:
     def gap(v):
         return [lambda c: setattr(c.context, "use_gap_filter", True), lambda c: setattr(c.context, "gap_min_prior_range", v)]
 
+    def ov(buf):
+        return [lambda c: setattr(c.context, "use_overnight_guard", True), lambda c: setattr(c.context, "overnight_buffer_atr", buf)]
+
     variants = {
         "default (no context filters)": [],
         "event windows + flatten before event": ev(),
@@ -283,6 +286,10 @@ def sec_context(lab: Lab) -> str:
         "gap filter, gap >= 25% of prior-day range": gap(0.25),
         "gap filter, gap >= 40% of prior-day range": gap(0.40),
         "gap filter, gap >= 60% of prior-day range": gap(0.60),
+        "overnight guard, 0.25 ATR wall": ov(0.25),
+        "overnight guard, 0.5 ATR wall": ov(0.5),
+        "overnight guard, 1.0 ATR wall": ov(1.0),
+        "gap filter 25% + overnight guard 0.5": gap(0.25) + ov(0.5),
     }
     rows = [_row(n, lab.run(lab.cfg(*m))["metrics"]) for n, m in variants.items()]
     out += md_table(rows)
@@ -308,11 +315,11 @@ def sec_context(lab: Lab) -> str:
         out += (f"\n> **Calendar coverage warning:** `{base_cfg.context.event_file}` lists tier-1 events in only {len(ev_months)} of "
                 f"{len(months)} months of this sample. Event results are meaningless until the file covers the whole period.\n")
     out += (f"\n**Sample coverage.** {len(t1)} tier-1 event days fall inside this {len(sample)}-session sample. "
-            f"Overnight range is available for {valid_on} sessions: the bundled CSV starts at 09:30 ET, so the overnight guard "
-            "cannot be evaluated here. Download data with `--include-eth` and re-run.\n"
-            "\n**Data caveat.** The CSV is an unadjusted IBKR continuous contract. The largest gaps cluster around the September roll "
-            "(e.g. 2026-09-10/11/14), so some gaps include the calendar spread between contracts and are not real overnight moves. "
-            "Back-adjust or use per-contract data before trusting gap statistics.\n"
+            + (f"Overnight range is available for {valid_on} sessions, so the overnight-guard rows above are real tests.\n" if valid_on > 20 else
+               f"Overnight range is available for {valid_on} sessions: this CSV has no overnight bars, so the overnight-guard rows above "
+               "are no-ops. Download with `--include-eth` and re-run.\n")
+            + "\n**Data note.** Gap and overnight statistics are only as clean as the roll handling in the CSV. Use "
+            "`download-history --years N` (per-contract, back-adjusted), not a single unadjusted continuous contract.\n"
             "\nWith this few event days the event filter cannot be judged statistically; its value is risk control "
             "(not holding through FOMC/CPI/NFP), not a measured edge.\n")
     return out
@@ -363,7 +370,7 @@ def sec_entry(lab: Lab) -> str:
         })
     return ("## 10. Entry-quality options (next-bar fill model, one change at a time)\n\n" + md_table(rows) +
             "\nA variant is only interesting if it helps in BOTH halves and its neighbours (other retrace sizes, swing lengths) "
-            "behave similarly. Each row is a hypothesis tested on the same 111-trade sample, so some will look good by chance.\n")
+            "behave similarly. Each row is a hypothesis tested on the same " + str(rows[0]["trades"]) + "-trade sample, so some will look good by chance.\n")
 
 
 def sec_eventdays(lab: Lab) -> str:
@@ -486,9 +493,10 @@ def sec_eventdays(lab: Lab) -> str:
                        "low third net $": round(float(b.loc["low", "sum"]), 0), "mid third net $": round(float(b.loc["mid", "sum"]), 0),
                        "high third net $": round(float(b.loc["high", "sum"]), 0)})
     out += ("\n**G. Can anything known before the entry window predict the profitable days?**\n\n" + md_table(g_rows) +
-            "\nFour features tested on 66 days: a correlation near 0.2 is within chance here, so only a strong, monotonic pattern "
+            f"\nFour features tested on {len(day)} days: a correlation near 0.2 is within chance when there are only dozens of days, so only a strong, monotonic pattern "
             "(low < mid < high) would be worth following up.\n")
-    out += ("\n8 days and 14 trades are a very small sample. Read this as a map of where the risk of being wrong is, not as a verdict.\n")
+    out += (f"\n{n_ev} event days and {int(ed['trades'].sum())} trades are a very small sample, and the calendar may not cover the whole "
+            "period. Read this as a map of where the risk of being wrong is, not as a verdict.\n")
     return out
 
 
