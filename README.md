@@ -18,7 +18,12 @@ Data: back-adjusted per-contract 2-minute MNQ bars, 2024-10-29 to 2026-10-30, pr
 | Max drawdown | $704 | $1,870 |
 | README-era optimistic fills | +$2,927 | +$181 |
 
-* The 66 sessions were the best stretch: outside them the strategy roughly broke even. First year -$673, second year +$2,211.
+* **Nearly all profit came in one month.** Through September 2026 the strategy had earned only +$204 in 23 months; October 2026
+  alone made +$1,334 (87% of the total). The equity curve bottomed at -$1,358 (7 Apr 2026) and went 434 days without a new high.
+  First year -$673, second year +$2,211. The 66 sessions tested first were the strongest stretch.
+
+![Two-year PnL curve](reports/pnl_curve_2y.png)
+
 * Only 13 of 25 months profitable; top 3 days = 93% of net profit; without the best 5 days the strategy loses $845.
 * Costs matter: +$402 at double commission, -$1,055 with 3-tick stop slippage, 2 ticks worse entries and double commission.
 * Tuning does not generalise: walk-forward re-optimisation made +$854 vs +$1,624 for the fixed defaults.
